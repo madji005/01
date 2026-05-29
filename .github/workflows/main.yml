@@ -1,15 +1,33 @@
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  النسخة السادسة - V6 Ultimate Remote Desktop Workflow           ║
-# ║  3 منصات: Windows (RDP) + Linux (XRDP+XFCE) + macOS (VNC)     ║
-# ║  12 خيار Runner + جلسات متعددة + إشعارات ذكية                 ║
-# ║  الأسرار المطلوبة في GitHub Secrets:                            ║
-# ║    - NGROK_AUTH_TOKEN    (رمز ngrok)                            ║
-# ║    - TELEGRAM_BOT_TOKEN  (رمز بوت تيلغرام)                     ║
-# ║    - TELEGRAM_CHAT_ID    (معرف محادثة تيلغرام)                  ║
-# ║    - RDP_PASSWORD        (كلمة سر RDP - اختياري)                ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  نسخة 10 حسابات - V6.3 Ultimate Remote Desktop Workflow            ║
+# ║  3 منصات: Windows (RDP) + Linux (XRDP+XFCE) + macOS (VNC)         ║
+# ║  12 خيار Runner + 10 توكنات ngrok + مدة قابلة للتخصيص            ║
+# ║                                                                      ║
+# ║  البنية: N سيرفرات مستقلة (كل جلسة = سيرفر منفصل)                 ║
+# ║  كل سيرفر يحاول التوكن المخصص له أولاً، وإذا فشل ينتقل للتالي    ║
+# ║                                                                      ║
+# ║  نظام التوكنات الاحتياطي:                                          ║
+# ║    الجلسة 1 → تجرب التوكن 1 ثم 2 ثم 3 ... حتى 10                  ║
+# ║    الجلسة 2 → تجرب التوكن 2 ثم 3 ثم 4 ... حتى 10 ثم 1             ║
+# ║    الجلسة N → تجرب التوكن N ثم N+1 ... حتى 10 ثم 1 ... N-1        ║
+# ║                                                                      ║
+# ║  الأسرار المطلوبة في GitHub Secrets:                                ║
+# ║    - NGROK_AUTH_TOKEN_1   (توكن ngrok رقم 1)  ★ مطلوب             ║
+# ║    - NGROK_AUTH_TOKEN_2   (توكن ngrok رقم 2)  ★ مطلوب             ║
+# ║    - NGROK_AUTH_TOKEN_3   (توكن ngrok رقم 3)  ★ مطلوب             ║
+# ║    - NGROK_AUTH_TOKEN_4   (توكن ngrok رقم 4)  اختياري             ║
+# ║    - NGROK_AUTH_TOKEN_5   (توكن ngrok رقم 5)  اختياري             ║
+# ║    - NGROK_AUTH_TOKEN_6   (توكن ngrok رقم 6)  اختياري             ║
+# ║    - NGROK_AUTH_TOKEN_7   (توكن ngrok رقم 7)  اختياري             ║
+# ║    - NGROK_AUTH_TOKEN_8   (توكن ngrok رقم 8)  اختياري             ║
+# ║    - NGROK_AUTH_TOKEN_9   (توكن ngrok رقم 9)  اختياري             ║
+# ║    - NGROK_AUTH_TOKEN_10  (توكن ngrok رقم 10) اختياري             ║
+# ║    - TELEGRAM_BOT_TOKEN   (رمز بوت تيلغرام)                        ║
+# ║    - TELEGRAM_CHAT_ID     (معرف محادثة تيلغرام)                    ║
+# ║    - RDP_PASSWORD         (كلمة سر RDP - اختياري)                   ║
+# ╚══════════════════════════════════════════════════════════════════════╝
 
-name: V6-Ultimate-RDP
+name: نسخة 10 حسابات - V6 Ultimate RDP
 
 on:
   workflow_dispatch:
@@ -36,7 +54,7 @@ on:
           - 'macos-14'
           - 'macos-15'
       session_count:
-        description: 'عدد جلسات RDP المتوازية'
+        description: 'عدد السيرفرات المستقلة (كل سيرفر = runner منفصل)'
         required: true
         default: '1'
         type: choice
@@ -51,8 +69,13 @@ on:
           - '8'
           - '9'
           - '10'
+      duration_minutes:
+        description: 'مدة التشغيل بالدقائق (10 - 350)'
+        required: true
+        default: '360'
+        type: string
       auto_restart:
-        description: 'إعادة التشغيل التلقائي عند انتهاء الجلسة'
+        description: 'إعادة التشغيل التلقائي عند انتهاء المدة'
         required: false
         default: 'true'
         type: choice
@@ -65,7 +88,7 @@ permissions:
   contents: read
 
 env:
-  VERSION: "6.0"
+  VERSION: "6.3"
 
 concurrency:
   group: v6-rdp-${{ github.ref }}
@@ -73,13 +96,28 @@ concurrency:
 
 jobs:
   # ══════════════════════════════════════════════════════════════
-  #     Job تحضيري - إنشاء مصفوفة الجلسات ديناميكياً
+  #     Job تحضيري - إنشاء مصفوفة الجلسات + التحقق من المدة
   # ══════════════════════════════════════════════════════════════
   setup:
     runs-on: ubuntu-latest
     outputs:
       matrix_json: ${{ steps.gen.outputs.matrix_json }}
+      duration: ${{ steps.validate.outputs.duration }}
+      timeout: ${{ steps.validate.outputs.timeout }}
     steps:
+      - name: Validate & Generate Matrix
+        id: validate
+        run: |
+          # التحقق من المدة
+          DUR="${{ github.event.inputs.duration_minutes }}"
+          if ! echo "$DUR" | grep -qP '^\d+$'; then DUR=360; fi
+          if [ "$DUR" -lt 10 ]; then DUR=10; fi
+          if [ "$DUR" -gt 350 ]; then DUR=350; fi
+          TIMEOUT=$((DUR + 15))
+          echo "duration=$DUR" >> $GITHUB_OUTPUT
+          echo "timeout=$TIMEOUT" >> $GITHUB_OUTPUT
+          echo "Validated duration: $DUR minutes, timeout: $TIMEOUT minutes"
+
       - name: Generate Session Matrix
         id: gen
         run: |
@@ -93,7 +131,8 @@ jobs:
           echo "Generated matrix for $COUNT sessions: [$ITEMS]"
 
   # ══════════════════════════════════════════════════════════════
-  #     Job رئيسي - يدعم كل المنصات مع جلسات متعددة
+  #     Job رئيسي - كل جلسة تعمل على سيرفر منفصل
+  #     مع نظام احتياطي للتوكنات
   # ══════════════════════════════════════════════════════════════
   rdp-session:
     needs: setup
@@ -101,22 +140,37 @@ jobs:
     strategy:
       matrix: ${{ fromJson(needs.setup.outputs.matrix_json) }}
       fail-fast: false
-    timeout-minutes: 360
+    timeout-minutes: ${{ fromJson(needs.setup.outputs.timeout) }}
+
+    env:
+      # ════ 10 توكنات ngrok ════
+      NGROK_TOKEN_1: ${{ secrets.NGROK_AUTH_TOKEN_1 }}
+      NGROK_TOKEN_2: ${{ secrets.NGROK_AUTH_TOKEN_2 }}
+      NGROK_TOKEN_3: ${{ secrets.NGROK_AUTH_TOKEN_3 }}
+      NGROK_TOKEN_4: ${{ secrets.NGROK_AUTH_TOKEN_4 }}
+      NGROK_TOKEN_5: ${{ secrets.NGROK_AUTH_TOKEN_5 }}
+      NGROK_TOKEN_6: ${{ secrets.NGROK_AUTH_TOKEN_6 }}
+      NGROK_TOKEN_7: ${{ secrets.NGROK_AUTH_TOKEN_7 }}
+      NGROK_TOKEN_8: ${{ secrets.NGROK_AUTH_TOKEN_8 }}
+      NGROK_TOKEN_9: ${{ secrets.NGROK_AUTH_TOKEN_9 }}
+      NGROK_TOKEN_10: ${{ secrets.NGROK_AUTH_TOKEN_10 }}
 
     steps:
       # ══════════════════════════════════════════════
       #  STEP 1: معلومات الجلسة
       # ══════════════════════════════════════════════
-      - name: "Session Info"
+      - name: "📋 Session Info"
         run: |
           echo "============================================"
-          echo "  V6 Ultimate RDP - Session ${{ matrix.session_num }}"
+          echo "  V6.3 Ultimate RDP - Session ${{ matrix.session_num }}"
           echo "============================================"
-          echo "  Runner:  ${{ github.event.inputs.runner_type }}"
-          echo "  OS:      ${{ runner.os }}"
-          echo "  Arch:    ${{ runner.arch }}"
-          echo "  Sessions: ${{ github.event.inputs.session_count }}"
-          echo "  Restart: ${{ github.event.inputs.auto_restart }}"
+          echo "  Runner:    ${{ github.event.inputs.runner_type }}"
+          echo "  OS:        ${{ runner.os }}"
+          echo "  Arch:      ${{ runner.arch }}"
+          echo "  Session:   ${{ matrix.session_num }} of ${{ github.event.inputs.session_count }}"
+          echo "  Duration:  ${{ needs.setup.outputs.duration }} minutes"
+          echo "  Restart:   ${{ github.event.inputs.auto_restart }}"
+          echo "  Token:     Starting with NGROK_AUTH_TOKEN_${{ matrix.session_num }}"
           echo "============================================"
 
       # ══════════════════════════════════════════════
@@ -126,32 +180,26 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # تفعيل اتصالات RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-
-          # تعطيل NLA لتسهيل الاتصال
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
 
-          # السماح بجلسات RDP متعددة لكل مستخدم
           try {
               Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fSingleSessionPerUser" -Value 0 -Force
           } catch {}
-
           try {
               $p = 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services'
               if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null }
               Set-ItemProperty -Path $p -Name "fSingleSessionPerUser" -Value 0 -Force
           } catch {}
 
-          # قواعد جدار الحماية
           & netsh advfirewall firewall delete rule name="RDP-Access" 2>$null | Out-Null
           & netsh advfirewall firewall add rule name="RDP-Access" dir=in action=allow protocol=TCP localport=3389
-
           Restart-Service -Name TermService -Force
+
           echo "RDP_PORT=3389" >> $env:GITHUB_ENV
           echo "RDP_TYPE=RDP" >> $env:GITHUB_ENV
-          Write-Host "Windows RDP configured successfully"
+          Write-Host "Windows RDP configured on port 3389"
           exit 0
 
       # ══════════════════════════════════════════════
@@ -160,28 +208,21 @@ jobs:
       - name: "[Linux] Install XRDP + XFCE Desktop"
         if: runner.os == 'Linux'
         run: |
-          # تثبيت واجهة XFCE4 + XRDP
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             xfce4 xfce4-terminal xfce4-taskmanager \
             xrdp xorgxrdp dbus-x11 \
             firefox fonts-noto-cjk 2>/dev/null || true
 
-          # تهيئة XRDP لاستخدام XFCE
           echo "xfce4-session" > ~/.xsession
           sudo bash -c 'echo "xfce4-session" > /home/runner/.xsession'
-
-          # إعدادات XRDP
           sudo sed -i 's/^max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
-
-          # تفعيل وتشغيل XRDP
           sudo systemctl enable xrdp
           sudo systemctl restart xrdp
 
-          # التحقق من تشغيل XRDP
           sleep 3
           if sudo systemctl is-active --quiet xrdp; then
-              echo "XRDP is running on port 3389"
+              echo "XRDP running on port 3389"
           else
               echo "WARNING: XRDP may not be running properly"
               sudo systemctl status xrdp || true
@@ -197,30 +238,20 @@ jobs:
       - name: "[macOS] Install VNC Server"
         if: runner.os == 'macOS'
         run: |
-          # تثبيت TigerVNC عبر Homebrew
           brew install tiger-vnc 2>/dev/null || true
 
-          # تعيين كلمة سر VNC
           RDP_PASS="${{ secrets.RDP_PASSWORD }}"
-          if [ -z "$RDP_PASS" ]; then
-              RDP_PASS="RDPmac2026!"
-          fi
+          if [ -z "$RDP_PASS" ]; then RDP_PASS="RDPmac2026!"; fi
 
-          # إنشاء ملف كلمة سر VNC
           mkdir -p ~/.vnc
           printf "$RDP_PASS\n$RDP_PASS\n" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
 
-          # تشغيل خادم VNC
           vncserver :0 -geometry 1280x800 -depth 24 -localhost no -rfbport 5900 -PasswordFile ~/.vnc/passwd 2>/dev/null || true
-
           sleep 3
-
-          # التحقق من تشغيل VNC
           if lsof -i :5900 >/dev/null 2>&1; then
-              echo "VNC is running on port 5900"
+              echo "VNC running on port 5900"
           else
-              echo "WARNING: VNC may not be running properly"
               /opt/homebrew/bin/vncserver :0 -geometry 1280x800 -depth 24 -localhost no -rfbport 5900 -PasswordFile ~/.vnc/passwd 2>/dev/null || true
           fi
 
@@ -235,14 +266,15 @@ jobs:
         if: runner.os == 'Windows'
         env:
           RDP_PASS: ${{ secrets.RDP_PASSWORD }}
+        shell: pwsh
         run: |
           if ([string]::IsNullOrWhiteSpace($env:RDP_PASS)) {
-              Write-Host "WARNING: RDP_PASSWORD secret is empty, generating random password"
               $upper = [char[]](65..90) | Get-Random -Count 3
               $lower = [char[]](97..122) | Get-Random -Count 3
               $digits = [char[]](48..57) | Get-Random -Count 3
               $safeSpecial = [char[]](36,42,43,45,61,95) | Get-Random -Count 3
               $password = -join ($upper + $lower + $digits + $safeSpecial | Sort-Object { Get-Random })
+              Write-Host "Generated random password"
           } else {
               $password = $env:RDP_PASS
               Write-Host "Using fixed password from RDP_PASSWORD secret"
@@ -254,6 +286,215 @@ jobs:
           echo "RDP_PASSWORD_VALUE=$password" >> $env:GITHUB_ENV
           echo "RDP_USER=RDP" >> $env:GITHUB_ENV
           Write-Host "User RDP created successfully"
+
+      # ══════════════════════════════════════════════════════════════
+      #  STEP 3A.1: WINDOWS - تثبيت البرامج والأدوات
+      #  ─────────────────────────────────────────────────────────────
+      #  Notepad++ 64x | FFmpeg | Python 3.12 + PATH
+      #  chromedriver (متوافق مع Chrome المثبت)
+      #  pip packages: undetected-chromedriver, selenium,
+      #  webdriver-manager, selenium-stealth, requests,
+      #  psutil, pyautogui, PySide6
+      # ══════════════════════════════════════════════════════════════
+      - name: "[Windows] Install Software & Tools"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "============================================"
+          Write-Host "  Installing Software & Tools"
+          Write-Host "============================================"
+
+          # ── 1. Notepad++ 64-bit ──
+          Write-Host "[1/6] Installing Notepad++ 64-bit..."
+          $nppUrl = "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.1/npp.8.7.1.Installer.x64.exe"
+          $nppInstaller = "$env:TEMP\npp_installer.exe"
+          try {
+              Invoke-WebRequest -Uri $nppUrl -OutFile $nppInstaller -MaximumRetryCount 3
+              Start-Process -FilePath $nppInstaller -ArgumentList "/S" -Wait -NoNewWindow
+              $nppPath = "C:\Program Files\Notepad++"
+              if (Test-Path $nppPath) {
+                  echo "$nppPath" >> $env:GITHUB_PATH
+                  Write-Host "  Notepad++ installed successfully"
+              } else { Write-Host "  WARNING: Notepad++ install may have failed" }
+          } catch { Write-Host "  WARNING: Notepad++ download failed - skipping" }
+          finally { Remove-Item $nppInstaller -Force -ErrorAction SilentlyContinue }
+
+          # ── 2. FFmpeg ──
+          Write-Host "[2/6] Installing FFmpeg..."
+          $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          $ffmpegZip = "$env:TEMP\ffmpeg.zip"
+          $ffmpegDir = "$env:TEMP\ffmpeg"
+          try {
+              Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegZip -MaximumRetryCount 3
+              Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegDir -Force
+              # البحث عن مجلد bin داخل المجلد المستخرج
+              $ffmpegBin = Get-ChildItem -Path $ffmpegDir -Filter "bin" -Directory -Recurse | Select-Object -First 1
+              if ($ffmpegBin) {
+                  # نسخ إلى موقع ثابت
+                  $destDir = "C:\ffmpeg\bin"
+                  New-Item -Path "C:\ffmpeg" -ItemType Directory -Force | Out-Null
+                  Copy-Item -Path "$($ffmpegBin.FullName)\*" -Destination $destDir -Force
+                  echo "$destDir" >> $env:GITHUB_PATH
+                  Write-Host "  FFmpeg installed successfully"
+                  & "$destDir\ffmpeg.exe" -version | Select-Object -First 1
+              } else { Write-Host "  WARNING: FFmpeg bin folder not found" }
+          } catch { Write-Host "  WARNING: FFmpeg install failed - skipping" }
+          finally {
+              Remove-Item $ffmpegZip -Force -ErrorAction SilentlyContinue
+              Remove-Item $ffmpegDir -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          # ── 3. Python 3.12 + PATH ──
+          Write-Host "[3/6] Installing Python 3.12..."
+          $pyUrl = "https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe"
+          $pyInstaller = "$env:TEMP\python_installer.exe"
+          try {
+              Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -MaximumRetryCount 3
+              # تثبيت مع إضافة إلى PATH لجميع المستخدمين
+              Start-Process -FilePath $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1 Include_test=0" -Wait -NoNewWindow
+
+              # إضافة مسارات Python إلى PATH و GITHUB_PATH
+              $pyPaths = @(
+                  "C:\Program Files\Python312",
+                  "C:\Program Files\Python312\Scripts",
+                  "C:\Program Files\Python312\Lib\site-packages"
+              )
+              foreach ($p in $pyPaths) {
+                  if (Test-Path $p) { echo "$p" >> $env:GITHUB_PATH }
+              }
+
+              # التحقق
+              $pyExe = "C:\Program Files\Python312\python.exe"
+              if (Test-Path $pyExe) {
+                  $pyVer = & $pyExe --version 2>&1
+                  Write-Host "  Python installed: $pyVer"
+              } else { Write-Host "  WARNING: Python 3.12 may not be in expected location" }
+          } catch { Write-Host "  WARNING: Python install failed - skipping" }
+          finally { Remove-Item $pyInstaller -Force -ErrorAction SilentlyContinue }
+
+          # تحديث PATH للجلسة الحالية
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+
+          # ── 4. chromedriver (متوافق مع Chrome المثبت) ──
+          Write-Host "[4/6] Installing chromedriver..."
+          try {
+              # كشف نسخة Chrome المثبتة
+              $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+              $chromeVersion = $null
+              if (Test-Path $chromePath) {
+                  $chromeVersion = (Get-Item $chromePath).VersionInfo.FileVersion
+                  Write-Host "  Detected Chrome version: $chromeVersion"
+              }
+
+              if ($chromeVersion) {
+                  # استخراج النسخة الكاملة
+                  $parts = $chromeVersion -split '\.'
+                  $majorVersion = $parts[0]
+
+                  # محاولة التحميل من Chrome for Testing API
+                  $cdUrl = $null
+                  try {
+                      $cf2t = Invoke-RestMethod -Uri "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" -TimeoutSec 15
+                      $matching = $cf2t.versions | Where-Object { $_.version -eq $chromeVersion -and $_.downloads.chromedriver -ne $null }
+                      if (-not $matching) {
+                          # البحث عن أقرب نسخة من نفس النسخة الكبرى
+                          $matching = $cf2t.versions | Where-Object { $_.version -like "$majorVersion.*" -and $_.downloads.chromedriver -ne $null } | Select-Object -Last 1
+                      }
+                      if ($matching) {
+                          $winDownload = $matching.downloads.chromedriver | Where-Object { $_.platform -eq "win64" }
+                          if ($winDownload) { $cdUrl = $winDownload.url }
+                          Write-Host "  Found chromedriver version: $($matching.version)"
+                      }
+                  } catch { Write-Host "  Chrome for Testing API failed, trying direct URL..." }
+
+                  # محاولة مباشرة إذا فشلت API
+                  if (-not $cdUrl) {
+                      $cdUrl = "https://storage.googleapis.com/chrome-for-testing-public/$chromeVersion/win64/chromedriver-win64.zip"
+                  }
+
+                  $cdZip = "$env:TEMP\chromedriver.zip"
+                  $cdDir = "$env:TEMP\chromedriver"
+                  try {
+                      Invoke-WebRequest -Uri $cdUrl -OutFile $cdZip -MaximumRetryCount 3
+                      Expand-Archive -Path $cdZip -DestinationPath $cdDir -Force
+                      $cdExe = Get-ChildItem -Path $cdDir -Filter "chromedriver.exe" -Recurse | Select-Object -First 1
+                      if ($cdExe) {
+                          Copy-Item -Path $cdExe.FullName -Destination "C:\Windows\System32\chromedriver.exe" -Force
+                          Write-Host "  chromedriver installed: $(& 'C:\Windows\System32\chromedriver.exe' --version 2>&1)"
+                      }
+                  } catch {
+                      Write-Host "  WARNING: chromedriver download failed - undetected-chromedriver will handle it"
+                  }
+                  finally {
+                      Remove-Item $cdZip -Force -ErrorAction SilentlyContinue
+                      Remove-Item $cdDir -Recurse -Force -ErrorAction SilentlyContinue
+                  }
+              } else { Write-Host "  WARNING: Chrome not found, skipping chromedriver" }
+          } catch { Write-Host "  WARNING: chromedriver install failed - skipping" }
+
+          # ── 5. pip packages ──
+          Write-Host "[5/6] Installing Python packages..."
+          $pyExe = "C:\Program Files\Python312\python.exe"
+          if (-not (Test-Path $pyExe)) {
+              # محاولة البحث في PATH
+              $pyExe = (Get-Command python -ErrorAction SilentlyContinue).Source
+          }
+          if ($pyExe) {
+              # ترقية pip أولاً
+              & $pyExe -m pip install --upgrade pip 2>&1 | Select-Object -Last 2
+
+              $packages = @(
+                  "undetected-chromedriver",
+                  "selenium",
+                  "webdriver-manager",
+                  "selenium-stealth",
+                  "requests",
+                  "psutil",
+                  "pyautogui",
+                  "PySide6"
+              )
+
+              foreach ($pkg in $packages) {
+                  Write-Host "  Installing $pkg..."
+                  & $pyExe -m pip install $pkg 2>&1 | Select-Object -Last 1
+              }
+
+              # عرض الحزم المثبتة
+              Write-Host ""
+              Write-Host "  Installed packages:"
+              & $pyExe -m pip list 2>&1 | Select-String -Pattern "selenium|undetected|webdriver|stealth|requests|psutil|pyautogui|PySide"
+          } else {
+              Write-Host "  WARNING: Python not found, cannot install pip packages"
+          }
+
+          # ── 6. التحقق النهائي ──
+          Write-Host ""
+          Write-Host "[6/6] Final verification..."
+          Write-Host "============================================"
+
+          # Notepad++
+          $nppExe = "C:\Program Files\Notepad++\notepad++.exe"
+          if (Test-Path $nppExe) { Write-Host "  Notepad++:   OK" } else { Write-Host "  Notepad++:   NOT FOUND" }
+
+          # FFmpeg
+          $ffExe = "C:\ffmpeg\bin\ffmpeg.exe"
+          if (Test-Path $ffExe) { Write-Host "  FFmpeg:      OK" } else { Write-Host "  FFmpeg:      NOT FOUND" }
+
+          # Python
+          if (Test-Path "C:\Program Files\Python312\python.exe") {
+              $pv = & "C:\Program Files\Python312\python.exe" --version 2>&1
+              Write-Host "  Python:      $pv"
+          } else { Write-Host "  Python:      NOT FOUND" }
+
+          # chromedriver
+          if (Test-Path "C:\Windows\System32\chromedriver.exe") {
+              $cv = & "C:\Windows\System32\chromedriver.exe" --version 2>&1
+              Write-Host "  chromedriver: $cv"
+          } else { Write-Host "  chromedriver: NOT FOUND (undetected-chromedriver will auto-download)" }
+
+          Write-Host "============================================"
+          Write-Host "  Software installation complete!"
+          Write-Host "============================================"
 
       # ══════════════════════════════════════════════
       #  STEP 3B: LINUX - تعيين كلمة سر المستخدم
@@ -278,10 +519,9 @@ jobs:
         run: |
           PASSWORD="${RDP_PASS:-RDPmac2026!}"
           echo "RDP_PASSWORD_VALUE=$PASSWORD" >> $GITHUB_ENV
-          echo "Password variable set"
 
       # ══════════════════════════════════════════════
-      #  STEP 4: تثبيت ngrok (كل المنصات)
+      #  STEP 4: تثبيت ngrok
       # ══════════════════════════════════════════════
       - name: "[Windows] Install ngrok"
         if: runner.os == 'Windows'
@@ -299,11 +539,12 @@ jobs:
               Write-Host "ngrok installed"
           } else { Write-Error "ngrok not found"; exit 1 }
 
-      - name: "[Linux/macOS] Install ngrok"
-        if: runner.os != 'Windows'
+      - name: "[Linux] Install ngrok"
+        if: runner.os == 'Linux'
         run: |
-          if [ "$(uname -s)" = "Darwin" ]; then
-              curl -sLo /tmp/ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.zip
+          ARCH=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+          if [ "$ARCH" = "arm64" ]; then
+              curl -sLo /tmp/ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.zip
           else
               curl -sLo /tmp/ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
           fi
@@ -313,49 +554,207 @@ jobs:
           echo "NGROK_EXE=/usr/local/bin/ngrok" >> $GITHUB_ENV
           echo "ngrok installed"
 
-      # ══════════════════════════════════════════════
-      #  STEP 5: تشغيل نفق ngrok
-      # ══════════════════════════════════════════════
-      - name: "[Windows] Start ngrok Tunnel"
-        if: runner.os == 'Windows'
-        env:
-          NGROK_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+      - name: "[macOS] Install ngrok"
+        if: runner.os == 'macOS'
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:NGROK_TOKEN)) {
-              Write-Error "NGROK_AUTH_TOKEN secret is not set! Please add it to GitHub Secrets."
-              exit 1
-          }
-          & $env:NGROK_EXE config add-authtoken $env:NGROK_TOKEN
-          $ngrokLog = "$env:TEMP\ngrok.log"
-          $proc = Start-Process -FilePath $env:NGROK_EXE -ArgumentList "tcp $env:RDP_PORT --log=$ngrokLog --log-format=logfmt" -PassThru -WindowStyle Hidden
-          echo "NGROK_PID=$($proc.Id)" >> $env:GITHUB_ENV
-          Start-Sleep -Seconds 10
-          if ($proc.HasExited) {
-              Write-Error "ngrok crashed!"
-              if (Test-Path $ngrokLog) { Get-Content $ngrokLog }
-              exit 1
-          }
-          Write-Host "ngrok running"
+          curl -sLo /tmp/ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.zip
+          sudo unzip -o /tmp/ngrok.zip -d /usr/local/bin/
+          rm /tmp/ngrok.zip
+          sudo chmod +x /usr/local/bin/ngrok
+          echo "NGROK_EXE=/usr/local/bin/ngrok" >> $GITHUB_ENV
+          echo "ngrok installed"
 
-      - name: "[Linux/macOS] Start ngrok Tunnel"
-        if: runner.os != 'Windows'
-        env:
-          NGROK_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+      # ══════════════════════════════════════════════════════════════
+      #  STEP 5: تشغيل نفق ngrok مع نظام التوكنات الاحتياطي
+      #  ─────────────────────────────────────────────────────────────
+      #  الآلية:
+      #    - تبدأ الجلسة N بالتوكن N
+      #    - إذا فشل التوكن N → تجرب N+1, N+2, ... حتى 10
+      #    - ثم تعود إلى 1, 2, ... حتى N-1
+      #    - يتوقف عند أول توكن ناجح
+      #    - إذا فشلت كل التوكنات → تتوقف الجلسة
+      # ══════════════════════════════════════════════════════════════
+      - name: "[Windows] Start ngrok with Token Fallback"
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          if [ -z "$NGROK_TOKEN" ]; then
-              echo "NGROK_AUTH_TOKEN secret is not set! Please add it to GitHub Secrets."
+          $sessionNum = [int]"${{ matrix.session_num }}"
+          $foundToken = $null
+
+          # ترتيب التوكنات: ابدأ برقم الجلسة ثم دوّر
+          $tokenOrder = @()
+          for ($i = $sessionNum; $i -le 10; $i++) { $tokenOrder += $i }
+          for ($i = 1; $i -lt $sessionNum; $i++) { $tokenOrder += $i }
+
+          Write-Host "============================================"
+          Write-Host "  Session #$sessionNum - Token Fallback System"
+          Write-Host "  Token order: $($tokenOrder -join ' -> ')"
+          Write-Host "============================================"
+
+          foreach ($t in $tokenOrder) {
+              $tokenVar = "NGROK_TOKEN_$t"
+              $token = (Get-Item "env:$tokenVar" -ErrorAction SilentlyContinue).Value
+              if ([string]::IsNullOrWhiteSpace($token)) {
+                  Write-Host "[Token #$t] Not set in secrets - skipping"
+                  continue
+              }
+
+              Write-Host "[Token #$t] Trying..."
+
+              # إيقاف أي ngrok سابق
+              Get-Process -Name ngrok -ErrorAction SilentlyContinue | Stop-Process -Force
+              Start-Sleep -Seconds 2
+
+              # تهيئة التوكن
+              & $env:NGROK_EXE config add-authtoken $token 2>&1
+
+              # حذف ملف السجل القديم
+              $ngrokLog = "$env:TEMP\ngrok.log"
+              Remove-Item -Path $ngrokLog -Force -ErrorAction SilentlyContinue
+
+              # تشغيل ngrok
+              $proc = Start-Process -FilePath $env:NGROK_EXE -ArgumentList "tcp $env:RDP_PORT --log=$ngrokLog --log-format=logfmt" -PassThru -WindowStyle Hidden
+
+              # الانتظار حتى يبدأ
+              Start-Sleep -Seconds 10
+
+              # التحقق من أن العملية لا تزال تعمل
+              if ($proc.HasExited) {
+                  Write-Host "[Token #$t] FAILED - ngrok crashed!"
+                  if (Test-Path $ngrokLog) {
+                      Write-Host "--- ngrok log ---"
+                      Get-Content $ngrokLog -Tail 10
+                      Write-Host "--- end log ---"
+                  }
+                  continue
+              }
+
+              # التحقق من أن النفق يعمل عبر API
+              $tunnelOk = $false
+              try {
+                  Start-Sleep -Seconds 3
+                  $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
+                  if ($response.tunnels -and $response.tunnels.Count -gt 0) {
+                      $tunnelOk = $true
+                  }
+              } catch {
+                  Write-Host "[Token #$t] Tunnel API not ready, waiting..."
+                  Start-Sleep -Seconds 5
+                  try {
+                      $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
+                      if ($response.tunnels -and $response.tunnels.Count -gt 0) {
+                          $tunnelOk = $true
+                      }
+                  } catch {}
+              }
+
+              if ($tunnelOk) {
+                  $foundToken = $t
+                  echo "NGROK_PID=$($proc.Id)" >> $env:GITHUB_ENV
+                  echo "USED_TOKEN_IDX=$t" >> $env:GITHUB_ENV
+                  Write-Host "[Token #$t] SUCCESS - Tunnel established for Session #$sessionNum!"
+                  break
+              } else {
+                  Write-Host "[Token #$t] FAILED - No tunnel established"
+                  Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                  Start-Sleep -Seconds 2
+              }
+          }
+
+          if (-not $foundToken) {
+              Write-Error "ALL TOKENS FAILED for Session #$sessionNum!"
+              Write-Error "Make sure NGROK_AUTH_TOKEN_1 through NGROK_AUTH_TOKEN_10 are set in GitHub Secrets"
+              exit 1
+          }
+
+      - name: "[Linux/macOS] Start ngrok with Token Fallback"
+        if: runner.os != 'Windows'
+        run: |
+          SESSION_NUM=${{ matrix.session_num }}
+          FOUND_TOKEN=""
+
+          echo "============================================"
+          echo "  Session #$SESSION_NUM - Token Fallback System"
+          echo "  Token order: $SESSION_NUM -> ... -> 10 -> 1 -> ... -> $((SESSION_NUM-1))"
+          echo "============================================"
+
+          # بناء ترتيب التوكنات
+          TOKEN_ORDER=""
+          for i in $(seq $SESSION_NUM 10); do TOKEN_ORDER="$TOKEN_ORDER $i"; done
+          for i in $(seq 1 $((SESSION_NUM - 1))); do TOKEN_ORDER="$TOKEN_ORDER $i"; done
+
+          for t in $TOKEN_ORDER; do
+              # قراءة التوكن ديناميكياً
+              TOKEN_VAR="NGROK_TOKEN_$t"
+              TOKEN="${!TOKEN_VAR}"
+
+              if [ -z "$TOKEN" ]; then
+                  echo "[Token #$t] Not set in secrets - skipping"
+                  continue
+              fi
+
+              echo "[Token #$t] Trying..."
+
+              # إيقاف أي ngrok سابق
+              sudo pkill -f ngrok 2>/dev/null || true
+              sleep 2
+
+              # تهيئة التوكن
+              ngrok config add-authtoken "$TOKEN" 2>&1
+
+              # حذف ملف السجل القديم
+              rm -f /tmp/ngrok.log
+
+              # تشغيل ngrok
+              nohup ngrok tcp "$RDP_PORT" --log=/tmp/ngrok.log --log-format=logfmt > /dev/null 2>&1 &
+              NGROK_PID=$!
+
+              # الانتظار حتى يبدأ
+              sleep 10
+
+              # التحقق من أن العملية لا تزال تعمل
+              if ! kill -0 $NGROK_PID 2>/dev/null; then
+                  echo "[Token #$t] FAILED - ngrok crashed!"
+                  cat /tmp/ngrok.log 2>/dev/null | tail -5 || true
+                  continue
+              fi
+
+              # التحقق من أن النفق يعمل عبر API
+              TUNNEL_OK=false
+              sleep 3
+              TUNNEL_DATA=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null || echo "")
+              TUNNEL_COUNT=$(echo "$TUNNEL_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('tunnels',[])))" 2>/dev/null || echo "0")
+
+              if [ "$TUNNEL_COUNT" -gt 0 ] 2>/dev/null; then
+                  TUNNEL_OK=true
+              else
+                  echo "[Token #$t] Tunnel API not ready, waiting..."
+                  sleep 5
+                  TUNNEL_DATA=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null || echo "")
+                  TUNNEL_COUNT=$(echo "$TUNNEL_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('tunnels',[])))" 2>/dev/null || echo "0")
+                  if [ "$TUNNEL_COUNT" -gt 0 ] 2>/dev/null; then
+                      TUNNEL_OK=true
+                  fi
+              fi
+
+              if $TUNNEL_OK; then
+                  FOUND_TOKEN=$t
+                  echo "NGROK_PID=$NGROK_PID" >> $GITHUB_ENV
+                  echo "USED_TOKEN_IDX=$t" >> $GITHUB_ENV
+                  echo "[Token #$t] SUCCESS - Tunnel established for Session #$SESSION_NUM!"
+                  break
+              else
+                  echo "[Token #$t] FAILED - No tunnel established"
+                  kill $NGROK_PID 2>/dev/null || true
+                  sleep 2
+              fi
+          done
+
+          if [ -z "$FOUND_TOKEN" ]; then
+              echo "ALL TOKENS FAILED for Session #$SESSION_NUM!"
+              echo "Make sure NGROK_AUTH_TOKEN_1 through NGROK_AUTH_TOKEN_10 are set in GitHub Secrets"
               exit 1
           fi
-          ngrok config add-authtoken "$NGROK_TOKEN"
-          nohup ngrok tcp "$RDP_PORT" --log=/tmp/ngrok.log --log-format=logfmt > /dev/null 2>&1 &
-          echo "NGROK_PID=$!" >> $GITHUB_ENV
-          sleep 10
-          if ! kill -0 $! 2>/dev/null; then
-              echo "ngrok crashed!"
-              cat /tmp/ngrok.log 2>/dev/null || true
-              exit 1
-          fi
-          echo "ngrok running"
 
       # ══════════════════════════════════════════════
       #  STEP 6: الحصول على عنوان النفق
@@ -384,7 +783,7 @@ jobs:
               echo "NGROK_PORT=$($Matches[2])" >> $env:GITHUB_ENV
               echo "NGROK_FULL=$($Matches[1])`:$($Matches[2])" >> $env:GITHUB_ENV
           } else { echo "NGROK_FULL=$publicUrl" >> $env:GITHUB_ENV }
-          Write-Host "Address obtained: $env:NGROK_FULL"
+          Write-Host "Address: $env:NGROK_FULL (Token #$env:USED_TOKEN_IDX)"
 
       - name: "[Linux/macOS] Get Tunnel Address"
         if: runner.os != 'Windows'
@@ -399,7 +798,7 @@ jobs:
                   echo "NGROK_ADDRESS=$HOST" >> $GITHUB_ENV
                   echo "NGROK_PORT=$PORT" >> $GITHUB_ENV
                   echo "NGROK_FULL=$ADDRESS" >> $GITHUB_ENV
-                  echo "Address obtained: $ADDRESS"
+                  echo "Address: $ADDRESS (Token #$USED_TOKEN_IDX)"
                   exit 0
               fi
               echo "Waiting... attempt $i"
@@ -419,15 +818,21 @@ jobs:
           AUTO_RESTART: ${{ github.event.inputs.auto_restart }}
           RUNNER_TYPE: ${{ github.event.inputs.runner_type }}
           SESSION_NUM: ${{ matrix.session_num }}
+          DURATION: ${{ needs.setup.outputs.duration }}
         shell: bash
         run: |
           if [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
-              echo "Telegram secrets not configured - check GitHub Secrets"
-              echo "=== CONNECTION INFO ==="
-              echo "Type: $RDP_TYPE"
-              echo "Address: $NGROK_FULL"
-              echo "User: $RDP_USER"
-              echo "Pass: $RDP_PASSWORD_VALUE"
+              echo "Telegram secrets not configured"
+              echo "============================================"
+              echo "  Session #${SESSION_NUM} - CONNECTION INFO"
+              echo "============================================"
+              echo "  Type:    $RDP_TYPE"
+              echo "  Address: $NGROK_FULL"
+              echo "  User:    $RDP_USER"
+              echo "  Pass:    $RDP_PASSWORD_VALUE"
+              echo "  Token:   #$USED_TOKEN_IDX"
+              echo "  Duration: ${DURATION} minutes"
+              echo "============================================"
               exit 0
           fi
 
@@ -435,9 +840,14 @@ jobs:
           RESTART_STATUS="OFF"
           if [ "$AUTO_RESTART" = "true" ]; then RESTART_STATUS="ON"; fi
 
+          # حساب ساعات ودقائق المدة
+          DUR_H=$((DURATION / 60))
+          DUR_M=$((DURATION % 60))
+          DUR_STR="${DUR_H}h ${DUR_M}m"
+          if [ "$DUR_H" -eq 0 ]; then DUR_STR="${DUR_M}m"; fi
+
           NL=$'\n'
 
-          # بناء تعليمات الاتصال حسب نوع المنصة
           if [ "$RDP_TYPE" = "RDP" ]; then
               CONNECT="=== Windows RDP ===${NL}1. Open Remote Desktop (mstsc)${NL}2. Address: $NGROK_FULL${NL}3. User: $RDP_USER${NL}4. Pass: $RDP_PASSWORD_VALUE"
           elif [ "$RDP_TYPE" = "XRDP" ]; then
@@ -446,7 +856,7 @@ jobs:
               CONNECT="=== macOS VNC ===${NL}1. Install VNC Viewer${NL}2. Address: $NGROK_FULL${NL}3. Pass: $RDP_PASSWORD_VALUE"
           fi
 
-          MESSAGE="Server #${SESSION_NUM} Ready!${NL}${NL}Type: $RDP_TYPE${NL}Runner: $RUNNER_TYPE${NL}Address: $NGROK_FULL${NL}User: $RDP_USER${NL}Pass: $RDP_PASSWORD_VALUE${NL}${NL}Started: $START_TIME${NL}Duration: ~6 hours${NL}Auto-Restart: $RESTART_STATUS${NL}${NL}$CONNECT"
+          MESSAGE="Server #${SESSION_NUM} Ready!${NL}${NL}Type: $RDP_TYPE${NL}Runner: $RUNNER_TYPE${NL}Address: $NGROK_FULL${NL}User: $RDP_USER${NL}Pass: $RDP_PASSWORD_VALUE${NL}Token: #$USED_TOKEN_IDX${NL}${NL}Started: $START_TIME${NL}Duration: $DUR_STR${NL}Auto-Restart: $RESTART_STATUS${NL}${NL}$CONNECT"
 
           ENCODED_MSG=$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))" "$MESSAGE" 2>/dev/null || echo "")
           if [ -z "$ENCODED_MSG" ]; then
@@ -462,6 +872,7 @@ jobs:
 
       # ══════════════════════════════════════════════
       #  STEP 8: إبقاء الاتصال + مؤقت ذكي
+      #  المدة مأخوذة من المدخل (قابلة للتخصيص)
       # ══════════════════════════════════════════════
       - name: "[Windows] Maintain Connection"
         if: runner.os == 'Windows'
@@ -469,21 +880,25 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SESSION_NUM: ${{ matrix.session_num }}
+          DURATION: ${{ needs.setup.outputs.duration }}
         run: |
+          $maxMinutes = [int]"$env:DURATION"
+          $sn = $env:SESSION_NUM
+
           Write-Host "============================================"
-          Write-Host "  Session #$env:SESSION_NUM - RDP ACCESS INFO"
+          Write-Host "  Session #$sn - RDP ACCESS INFO"
           Write-Host "============================================"
-          Write-Host "  Address: $env:NGROK_FULL"
-          Write-Host "  User:    $env:RDP_USER"
-          Write-Host "  Pass:    $env:RDP_PASSWORD_VALUE"
-          Write-Host "  Time:    350 minutes max"
+          Write-Host "  Address:  $env:NGROK_FULL"
+          Write-Host "  User:     $env:RDP_USER"
+          Write-Host "  Pass:     $env:RDP_PASSWORD_VALUE"
+          Write-Host "  Token:    #$env:USED_TOKEN_IDX"
+          Write-Host "  Duration: $maxMinutes minutes"
           Write-Host "============================================"
 
           $startTime = Get-Date
-          $maxMinutes = 350
-          $notified30 = $false; $notified10 = $false; $notified5 = $false
+          $notifiedHalf = $false; $notified30 = $false; $notified10 = $false; $notified5 = $false
           $botToken = $env:TG_BOT_TOKEN; $chatId = $env:TG_CHAT_ID
-          $sn = $env:SESSION_NUM
+          $halfMark = [math]::Floor($maxMinutes / 2)
 
           while ($true) {
               $elapsed = (Get-Date) - $startTime
@@ -493,16 +908,25 @@ jobs:
               $m = [math]::Floor($remaining % 60)
               Write-Host "[S$sn] [$(Get-Date -Format 'HH:mm:ss')] Remaining: ${h}h ${m}m"
 
+              # إشعار عند منتصف المدة
+              if ($remaining -le $halfMark -and -not $notifiedHalf -and $halfMark -ge 5 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
+                  $notifiedHalf = $true
+                  $msg = [System.Uri]::EscapeDataString("[S$sn] Half time! $halfMark minutes remaining of $maxMinutes")
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
+              }
+              # إشعار 30 دقيقة
               if ($remaining -le 30 -and -not $notified30 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
                   $notified30 = $true
                   $msg = [System.Uri]::EscapeDataString("[S$sn] Warning: Less than 30 minutes remaining!")
                   try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
               }
+              # إشعار 10 دقائق
               if ($remaining -le 10 -and -not $notified10 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
                   $notified10 = $true
                   $msg = [System.Uri]::EscapeDataString("[S$sn] URGENT: Less than 10 minutes! Save your work!")
                   try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
               }
+              # إشعار 5 دقائق
               if ($remaining -le 5 -and -not $notified5 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
                   $notified5 = $true
                   $msg = [System.Uri]::EscapeDataString("[S$sn] FINAL: Less than 5 minutes! Stopping soon!")
@@ -517,20 +941,25 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SESSION_NUM: ${{ matrix.session_num }}
+          DURATION: ${{ needs.setup.outputs.duration }}
         run: |
+          MAX_MINUTES=$DURATION
+          MAX_SECONDS=$((MAX_MINUTES * 60))
+          SN=$SESSION_NUM
+          HALF_MARK=$((MAX_MINUTES / 2))
+
           echo "============================================"
-          echo "  Session #${SESSION_NUM} - ACCESS INFO"
+          echo "  Session #${SN} - ACCESS INFO"
           echo "============================================"
-          echo "  Address: $NGROK_FULL"
-          echo "  User:    $RDP_USER"
-          echo "  Pass:    $RDP_PASSWORD_VALUE"
-          echo "  Time:    350 minutes max"
+          echo "  Address:  $NGROK_FULL"
+          echo "  User:     $RDP_USER"
+          echo "  Pass:     $RDP_PASSWORD_VALUE"
+          echo "  Token:    #$USED_TOKEN_IDX"
+          echo "  Duration: ${MAX_MINUTES} minutes"
           echo "============================================"
 
           START=$(date +%s)
-          MAX_SECONDS=$((350 * 60))
-          NOTIFIED30=0; NOTIFIED10=0; NOTIFIED5=0
-          SN=$SESSION_NUM
+          NOTIFIED_HALF=0; NOTIFIED30=0; NOTIFIED10=0; NOTIFIED5=0
 
           while true; do
               NOW=$(date +%s)
@@ -541,6 +970,11 @@ jobs:
               M=$(((REMAINING % 3600) / 60))
               echo "[S${SN}] [$(date '+%H:%M:%S')] Remaining: ${H}h ${M}m"
 
+              HALF_SEC=$((HALF_MARK * 60))
+              if [ $REMAINING -le $HALF_SEC ] && [ $NOTIFIED_HALF -eq 0 ] && [ $HALF_MARK -ge 5 ] && [ -n "$TG_BOT_TOKEN" ]; then
+                  NOTIFIED_HALF=1
+                  curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Half%20time!%20${HALF_MARK}min%20remaining%20of%20${MAX_MINUTES}min" > /dev/null 2>&1 || true
+              fi
               if [ $REMAINING -le 1800 ] && [ $NOTIFIED30 -eq 0 ] && [ -n "$TG_BOT_TOKEN" ]; then
                   NOTIFIED30=1
                   curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Warning%3A%20Less%20than%2030%20minutes!" > /dev/null 2>&1 || true
@@ -566,11 +1000,12 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SESSION_NUM: ${{ matrix.session_num }}
+          DURATION: ${{ needs.setup.outputs.duration }}
         shell: pwsh
         run: |
           $sn = $env:SESSION_NUM
           if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
-              $msg = [System.Uri]::EscapeDataString("[S$sn] Session ended. Auto-restarting all sessions...")
+              $msg = [System.Uri]::EscapeDataString("[S$sn] Session ended. Auto-restarting...")
               try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$msg" -Method Get -TimeoutSec 10 } catch {}
           }
 
@@ -583,18 +1018,19 @@ jobs:
                   auto_restart = "true"
                   runner_type = "${{ github.event.inputs.runner_type }}"
                   session_count = "${{ github.event.inputs.session_count }}"
+                  duration_minutes = "$env:DURATION"
               }
           } | ConvertTo-Json
 
           try {
               Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/actions/workflows/$wf/dispatches" -Method Post -Headers $headers -Body $body -ContentType "application/json"
-              Write-Host "Auto-restart triggered!"
+              Write-Host "[S$sn] Auto-restart triggered!"
           } catch {
               try {
-                  & gh workflow run $wf --ref "${{ github.ref }}" -f auto_restart=true -f runner_type="${{ github.event.inputs.runner_type }}" -f session_count="${{ github.event.inputs.session_count }}"
-                  Write-Host "Auto-restart via CLI!"
+                  & gh workflow run $wf --ref "${{ github.ref }}" -f auto_restart=true -f runner_type="${{ github.event.inputs.runner_type }}" -f session_count="${{ github.event.inputs.session_count }}" -f duration_minutes="$env:DURATION"
+                  Write-Host "[S$sn] Auto-restart via CLI!"
               } catch {
-                  Write-Host "Auto-restart failed!"
+                  Write-Host "[S$sn] Auto-restart failed!"
                   if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
                       $failMsg = [System.Uri]::EscapeDataString("[S$sn] Auto-restart failed! Restart manually.")
                       try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$failMsg" -Method Get -TimeoutSec 10 } catch {}
@@ -610,6 +1046,7 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SESSION_NUM: ${{ matrix.session_num }}
+          DURATION: ${{ needs.setup.outputs.duration }}
         run: |
           SN=$SESSION_NUM
           if [ -n "$TG_BOT_TOKEN" ]; then
@@ -621,7 +1058,7 @@ jobs:
           REF="${{ github.ref }}"
           RUNNER="${{ github.event.inputs.runner_type }}"
           COUNT="${{ github.event.inputs.session_count }}"
-          BODY="{\"ref\":\"$REF\",\"inputs\":{\"auto_restart\":\"true\",\"runner_type\":\"$RUNNER\",\"session_count\":\"$COUNT\"}}"
+          BODY="{\"ref\":\"$REF\",\"inputs\":{\"auto_restart\":\"true\",\"runner_type\":\"$RUNNER\",\"session_count\":\"$COUNT\",\"duration_minutes\":\"$DURATION\"}}"
 
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
@@ -631,11 +1068,11 @@ jobs:
               "https://api.github.com/repos/$REPO/actions/workflows/$WF/dispatches")
 
           if [ "$HTTP_CODE" = "204" ]; then
-              echo "Auto-restart triggered!"
+              echo "[S${SN}] Auto-restart triggered!"
           else
               echo "API failed ($HTTP_CODE), trying gh CLI..."
-              gh workflow run "$WF" --ref "$REF" -f auto_restart=true -f runner_type="$RUNNER" -f session_count="$COUNT" 2>/dev/null && echo "Auto-restart via CLI!" || {
-                  echo "Auto-restart failed!"
+              gh workflow run "$WF" --ref "$REF" -f auto_restart=true -f runner_type="$RUNNER" -f session_count="$COUNT" -f duration_minutes="$DURATION" 2>/dev/null && echo "[S${SN}] Auto-restart via CLI!" || {
+                  echo "[S${SN}] Auto-restart failed!"
                   if [ -n "$TG_BOT_TOKEN" ]; then
                       curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Auto-restart%20failed!" > /dev/null 2>&1 || true
                   fi
