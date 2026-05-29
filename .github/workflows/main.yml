@@ -73,15 +73,34 @@ concurrency:
 
 jobs:
   # ══════════════════════════════════════════════════════════════
+  #     Job تحضيري - إنشاء مصفوفة الجلسات ديناميكياً
+  # ══════════════════════════════════════════════════════════════
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix_json: ${{ steps.gen.outputs.matrix_json }}
+    steps:
+      - name: Generate Session Matrix
+        id: gen
+        run: |
+          COUNT=${{ github.event.inputs.session_count || '1' }}
+          ITEMS=""
+          for i in $(seq 1 $COUNT); do
+            if [ -n "$ITEMS" ]; then ITEMS="$ITEMS,"; fi
+            ITEMS="${ITEMS}${i}"
+          done
+          echo "matrix_json={\"session_num\":[${ITEMS}]}" >> $GITHUB_OUTPUT
+          echo "Generated matrix for $COUNT sessions: [$ITEMS]"
+
+  # ══════════════════════════════════════════════════════════════
   #     Job رئيسي - يدعم كل المنصات مع جلسات متعددة
   # ══════════════════════════════════════════════════════════════
   rdp-session:
+    needs: setup
     runs-on: ${{ github.event.inputs.runner_type }}
     strategy:
-      matrix:
-        session_num: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      matrix: ${{ fromJson(needs.setup.outputs.matrix_json) }}
       fail-fast: false
-    if: ${{ fromJson(github.event.inputs.session_count) >= matrix.session_num }}
     timeout-minutes: 360
 
     steps:
@@ -474,19 +493,16 @@ jobs:
               $m = [math]::Floor($remaining % 60)
               Write-Host "[S$sn] [$(Get-Date -Format 'HH:mm:ss')] Remaining: ${h}h ${m}m"
 
-              # إشعارات ذكية - 30 دقيقة
               if ($remaining -le 30 -and -not $notified30 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
                   $notified30 = $true
                   $msg = [System.Uri]::EscapeDataString("[S$sn] Warning: Less than 30 minutes remaining!")
                   try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
               }
-              # إشعارات ذكية - 10 دقائق
               if ($remaining -le 10 -and -not $notified10 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
                   $notified10 = $true
                   $msg = [System.Uri]::EscapeDataString("[S$sn] URGENT: Less than 10 minutes! Save your work!")
                   try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
               }
-              # إشعارات ذكية - 5 دقائق
               if ($remaining -le 5 -and -not $notified5 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
                   $notified5 = $true
                   $msg = [System.Uri]::EscapeDataString("[S$sn] FINAL: Less than 5 minutes! Stopping soon!")
@@ -525,7 +541,6 @@ jobs:
               M=$(((REMAINING % 3600) / 60))
               echo "[S${SN}] [$(date '+%H:%M:%S')] Remaining: ${H}h ${M}m"
 
-              # إشعارات ذكية
               if [ $REMAINING -le 1800 ] && [ $NOTIFIED30 -eq 0 ] && [ -n "$TG_BOT_TOKEN" ]; then
                   NOTIFIED30=1
                   curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Warning%3A%20Less%20than%2030%20minutes!" > /dev/null 2>&1 || true
