@@ -1,482 +1,654 @@
-# ============================================================
-# النسخة السادسة - GitHub Actions Workflow
-# V6 - 3 منصات: Windows (RDP) + Linux (XRDP+XFCE) + macOS (VNC)
-# 12 Runner: 4 Windows + 5 Linux + 3 macOS (بما فيها ARM)
-# إشعارات ذكية + إعادة تلقائية + جلسات متعددة + تنبيهات وقت
-# ============================================================
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  النسخة السادسة - V6 Ultimate Remote Desktop Workflow           ║
+# ║  3 منصات: Windows (RDP) + Linux (XRDP+XFCE) + macOS (VNC)     ║
+# ║  12 خيار Runner + جلسات متعددة + إشعارات ذكية                 ║
+# ║  الأسرار المطلوبة في GitHub Secrets:                            ║
+# ║    - NGROK_AUTH_TOKEN    (رمز ngrok)                            ║
+# ║    - TELEGRAM_BOT_TOKEN  (رمز بوت تيلغرام)                     ║
+# ║    - TELEGRAM_CHAT_ID    (معرف محادثة تيلغرام)                  ║
+# ║    - RDP_PASSWORD        (كلمة سر RDP - اختياري)                ║
+# ╚══════════════════════════════════════════════════════════════════╝
 
-name: V6 Remote Desktop - Multi-Platform
+name: V6-Ultimate-RDP
 
 on:
   workflow_dispatch:
     inputs:
-      platform:
-        description: 'اختر المنصة: all / windows / linux / macos'
+      runner_type:
+        description: 'اختر المنصة والنسخة'
         required: true
-        default: 'all'
+        default: 'windows-latest'
         type: choice
         options:
-          - all
-          - windows
-          - linux
-          - macos
-      session_name:
-        description: 'اسم الجلسة'
+          # ── Windows (RDP) ──────────────
+          - 'windows-latest'
+          - 'windows-2025'
+          - 'windows-2022'
+          - 'windows-11-arm'
+          # ── Linux (XRDP+XFCE) ─────────
+          - 'ubuntu-latest'
+          - 'ubuntu-24.04'
+          - 'ubuntu-22.04'
+          - 'ubuntu-24.04-arm'
+          - 'ubuntu-22.04-arm'
+          # ── macOS (VNC) ───────────────
+          - 'macos-latest'
+          - 'macos-14'
+          - 'macos-15'
+      session_count:
+        description: 'عدد جلسات RDP المتوازية'
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+          - '6'
+          - '7'
+          - '8'
+          - '9'
+          - '10'
+      auto_restart:
+        description: 'إعادة التشغيل التلقائي عند انتهاء الجلسة'
         required: false
-        default: 'v6-session'
-      time_limit_minutes:
-        description: 'مدة الجلسة بالدقائق'
-        required: false
-        default: '360'
-        type: string
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+permissions:
+  actions: write
+  contents: read
 
 env:
   VERSION: "6.0"
-  MAX_RETRIES: 20
-  BASE_DELAY: 2
 
 concurrency:
-  group: v6-remote-${{ github.ref }}
+  group: v6-rdp-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # ═══════════════════════════════════════════
-  # WINDOWS - 4 Runners (RDP)
-  # ═══════════════════════════════════════════
+  # ══════════════════════════════════════════════════════════════
+  #     Job رئيسي - يدعم كل المنصات مع جلسات متعددة
+  # ══════════════════════════════════════════════════════════════
+  rdp-session:
+    runs-on: ${{ github.event.inputs.runner_type }}
+    strategy:
+      matrix:
+        session_num: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      fail-fast: false
+    if: ${{ fromJson(github.event.inputs.session_count) >= matrix.session_num }}
+    timeout-minutes: 360
 
-  windows-server-2019:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows' || github.event_name != 'workflow_dispatch' }}
-    runs-on: windows-2019
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup RDP - Windows Server 2019
+      # ══════════════════════════════════════════════
+      #  STEP 1: معلومات الجلسة
+      # ══════════════════════════════════════════════
+      - name: "Session Info"
         run: |
-          Write-Host "=== V6 - Windows Server 2019 (RDP) ==="
-          Write-Host "Platform: Windows Server 2019 | Arch: x64 | Protocol: RDP"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Write-Host "RDP enabled on Windows Server 2019"
+          echo "============================================"
+          echo "  V6 Ultimate RDP - Session ${{ matrix.session_num }}"
+          echo "============================================"
+          echo "  Runner:  ${{ github.event.inputs.runner_type }}"
+          echo "  OS:      ${{ runner.os }}"
+          echo "  Arch:    ${{ runner.arch }}"
+          echo "  Sessions: ${{ github.event.inputs.session_count }}"
+          echo "  Restart: ${{ github.event.inputs.auto_restart }}"
+          echo "============================================"
 
-      - name: Smart Notification - RDP Active
+      # ══════════════════════════════════════════════
+      #  STEP 2A: WINDOWS - تهيئة RDP
+      # ══════════════════════════════════════════════
+      - name: "[Windows] Configure RDP"
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          Write-Host "=== Smart Notification (Adaptive) ==="
-          Write-Host "Connection Type: RDP Active"
-          Write-Host "Notification Style: Silent (non-intrusive)"
-          Write-Host "System Tray: Enabled | Sound: Disabled | Popups: Disabled"
+          # تفعيل اتصالات RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
 
-      - name: Time Alert Setup
+          # تعطيل NLA لتسهيل الاتصال
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+
+          # السماح بجلسات RDP متعددة لكل مستخدم
+          try {
+              Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fSingleSessionPerUser" -Value 0 -Force
+          } catch {}
+
+          try {
+              $p = 'HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services'
+              if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null }
+              Set-ItemProperty -Path $p -Name "fSingleSessionPerUser" -Value 0 -Force
+          } catch {}
+
+          # قواعد جدار الحماية
+          & netsh advfirewall firewall delete rule name="RDP-Access" 2>$null | Out-Null
+          & netsh advfirewall firewall add rule name="RDP-Access" dir=in action=allow protocol=TCP localport=3389
+
+          Restart-Service -Name TermService -Force
+          echo "RDP_PORT=3389" >> $env:GITHUB_ENV
+          echo "RDP_TYPE=RDP" >> $env:GITHUB_ENV
+          Write-Host "Windows RDP configured successfully"
+          exit 0
+
+      # ══════════════════════════════════════════════
+      #  STEP 2B: LINUX - تثبيت XRDP + XFCE
+      # ══════════════════════════════════════════════
+      - name: "[Linux] Install XRDP + XFCE Desktop"
+        if: runner.os == 'Linux'
         run: |
-          $limit = ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-          $warn = [math]::Floor($limit * 0.75)
-          $critical = [math]::Floor($limit * 0.90)
-          Write-Host "Session Time Limit: $limit minutes"
-          Write-Host "Warning Alert at: $warn minutes (75%)"
-          Write-Host "Critical Alert at: $critical minutes (90%)"
-
-      - name: Auto-Reconnect Configuration
-        if: failure()
-        run: |
-          Write-Host "=== Auto-Reconnect (Adaptive Strategy) ==="
-          Write-Host "Strategy: Instant reconnect for transient failures"
-          Write-Host "Max retries: $env:MAX_RETRIES"
-          Write-Host "Preserving session state..."
-
-  windows-server-2022:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows' || github.event_name != 'workflow_dispatch' }}
-    runs-on: windows-2022
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup RDP - Windows Server 2022
-        run: |
-          Write-Host "=== V6 - Windows Server 2022 (RDP) ==="
-          Write-Host "Platform: Windows Server 2022 | Arch: x64 | Protocol: RDP"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Write-Host "RDP enabled on Windows Server 2022"
-
-      - name: Smart Notification - RDP Active
-        run: |
-          Write-Host "Notification Style: Silent | System Tray: On | Sound: Off"
-
-      - name: Time Alert Setup
-        run: |
-          $limit = ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-          Write-Host "Time Limit: $limit min | Warning: $([math]::Floor($limit*0.75)) min | Critical: $([math]::Floor($limit*0.90)) min"
-
-  windows-10:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows' || github.event_name != 'workflow_dispatch' }}
-    runs-on: windows-latest
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup RDP - Windows 10/11
-        run: |
-          Write-Host "=== V6 - Windows 10/11 (RDP) ==="
-          Write-Host "Platform: Windows Desktop | Arch: x64 | Protocol: RDP"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Write-Host "RDP enabled on Windows Desktop"
-
-      - name: Smart Notification - RDP Active
-        run: |
-          Write-Host "Notification Style: Silent | System Tray: On | Sound: Off"
-
-  windows-11-gpu:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows' || github.event_name != 'workflow_dispatch' }}
-    runs-on: windows-latest
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup RDP - Windows 11 with GPU
-        run: |
-          Write-Host "=== V6 - Windows 11 GPU (RDP) ==="
-          Write-Host "Platform: Windows 11 | Arch: x64 | Protocol: RDP | GPU: Enabled"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -name "bEnumerateHWBeforeSW" -value 1
-          Write-Host "RDP + GPU Acceleration enabled"
-
-      - name: Smart Notification - RDP Active
-        run: |
-          Write-Host "Notification Style: Silent | GPU Mode: Active"
-
-  # ═══════════════════════════════════════════
-  # LINUX - 5 Runners (XRDP + XFCE)
-  # ═══════════════════════════════════════════
-
-  ubuntu-2204:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux' || github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-22.04
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup XRDP + XFCE - Ubuntu 22.04
-        run: |
-          echo "=== V6 - Ubuntu 22.04 LTS (XRDP+XFCE) ==="
-          echo "Platform: Ubuntu 22.04 | Arch: x64 | Protocol: XRDP"
+          # تثبيت واجهة XFCE4 + XRDP
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies xrdp xorgxrdp
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            xfce4 xfce4-terminal xfce4-taskmanager \
+            xrdp xorgxrdp dbus-x11 \
+            firefox fonts-noto-cjk 2>/dev/null || true
+
+          # تهيئة XRDP لاستخدام XFCE
+          echo "xfce4-session" > ~/.xsession
+          sudo bash -c 'echo "xfce4-session" > /home/runner/.xsession'
+
+          # إعدادات XRDP
+          sudo sed -i 's/^max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
+
+          # تفعيل وتشغيل XRDP
           sudo systemctl enable xrdp
-          sudo systemctl start xrdp
-          echo "XRDP+XFCE enabled on Ubuntu 22.04"
-
-      - name: Smart Notification - Check Connection Type
-        run: |
-          echo "=== Smart Notification (Adaptive) ==="
-          echo "Connection Type: XRDP Active"
-          echo "Notification Style: Silent"
-          echo "System Tray: Enabled | Sound: Disabled | Popups: Disabled"
-
-      - name: Time Alert Setup
-        run: |
-          LIMIT=${{ github.event.inputs.time_limit_minutes || '360' }}
-          WARN=$((LIMIT * 75 / 100))
-          CRITICAL=$((LIMIT * 90 / 100))
-          echo "Time Limit: ${LIMIT} min | Warning: ${WARN} min | Critical: ${CRITICAL} min"
-
-      - name: Auto-Reconnect on Failure
-        if: failure()
-        run: |
-          echo "=== Auto-Reconnect (Adaptive) ==="
-          echo "Strategy: Instant for transient / Backoff for persistent"
-          echo "Preserving session state..."
           sudo systemctl restart xrdp
 
-  ubuntu-2404:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux' || github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+          # التحقق من تشغيل XRDP
+          sleep 3
+          if sudo systemctl is-active --quiet xrdp; then
+              echo "XRDP is running on port 3389"
+          else
+              echo "WARNING: XRDP may not be running properly"
+              sudo systemctl status xrdp || true
+          fi
 
-      - name: Setup XRDP + XFCE - Ubuntu 24.04
+          echo "RDP_PORT=3389" >> $GITHUB_ENV
+          echo "RDP_TYPE=XRDP" >> $GITHUB_ENV
+          echo "RDP_USER=runner" >> $GITHUB_ENV
+
+      # ══════════════════════════════════════════════
+      #  STEP 2C: macOS - تثبيت VNC Server
+      # ══════════════════════════════════════════════
+      - name: "[macOS] Install VNC Server"
+        if: runner.os == 'macOS'
         run: |
-          echo "=== V6 - Ubuntu 24.04 LTS (XRDP+XFCE) ==="
-          echo "Platform: Ubuntu 24.04 | Arch: x64 | Protocol: XRDP"
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies xrdp xorgxrdp
-          sudo systemctl enable xrdp
-          sudo systemctl start xrdp
-          echo "XRDP+XFCE enabled on Ubuntu 24.04"
+          # تثبيت TigerVNC عبر Homebrew
+          brew install tiger-vnc 2>/dev/null || true
 
-      - name: Smart Notification
+          # تعيين كلمة سر VNC
+          RDP_PASS="${{ secrets.RDP_PASSWORD }}"
+          if [ -z "$RDP_PASS" ]; then
+              RDP_PASS="RDPmac2026!"
+          fi
+
+          # إنشاء ملف كلمة سر VNC
+          mkdir -p ~/.vnc
+          printf "$RDP_PASS\n$RDP_PASS\n" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+
+          # تشغيل خادم VNC
+          vncserver :0 -geometry 1280x800 -depth 24 -localhost no -rfbport 5900 -PasswordFile ~/.vnc/passwd 2>/dev/null || true
+
+          sleep 3
+
+          # التحقق من تشغيل VNC
+          if lsof -i :5900 >/dev/null 2>&1; then
+              echo "VNC is running on port 5900"
+          else
+              echo "WARNING: VNC may not be running properly"
+              /opt/homebrew/bin/vncserver :0 -geometry 1280x800 -depth 24 -localhost no -rfbport 5900 -PasswordFile ~/.vnc/passwd 2>/dev/null || true
+          fi
+
+          echo "RDP_PORT=5900" >> $GITHUB_ENV
+          echo "RDP_TYPE=VNC" >> $GITHUB_ENV
+          echo "RDP_USER=runner" >> $GITHUB_ENV
+
+      # ══════════════════════════════════════════════
+      #  STEP 3A: WINDOWS - إنشاء مستخدم RDP
+      # ══════════════════════════════════════════════
+      - name: "[Windows] Create RDP User"
+        if: runner.os == 'Windows'
+        env:
+          RDP_PASS: ${{ secrets.RDP_PASSWORD }}
         run: |
-          echo "Notification Style: Silent | XRDP Active"
+          if ([string]::IsNullOrWhiteSpace($env:RDP_PASS)) {
+              Write-Host "WARNING: RDP_PASSWORD secret is empty, generating random password"
+              $upper = [char[]](65..90) | Get-Random -Count 3
+              $lower = [char[]](97..122) | Get-Random -Count 3
+              $digits = [char[]](48..57) | Get-Random -Count 3
+              $safeSpecial = [char[]](36,42,43,45,61,95) | Get-Random -Count 3
+              $password = -join ($upper + $lower + $digits + $safeSpecial | Sort-Object { Get-Random })
+          } else {
+              $password = $env:RDP_PASS
+              Write-Host "Using fixed password from RDP_PASSWORD secret"
+          }
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
+          echo "RDP_PASSWORD_VALUE=$password" >> $env:GITHUB_ENV
+          echo "RDP_USER=RDP" >> $env:GITHUB_ENV
+          Write-Host "User RDP created successfully"
 
-  debian-12:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux' || github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    container:
-      image: debian:12
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup XRDP + XFCE - Debian 12
+      # ══════════════════════════════════════════════
+      #  STEP 3B: LINUX - تعيين كلمة سر المستخدم
+      # ══════════════════════════════════════════════
+      - name: "[Linux] Set User Password"
+        if: runner.os == 'Linux'
+        env:
+          RDP_PASS: ${{ secrets.RDP_PASSWORD }}
         run: |
-          echo "=== V6 - Debian 12 (XRDP+XFCE) ==="
-          echo "Platform: Debian 12 | Arch: x64 | Protocol: XRDP"
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies xrdp xorgxrdp sudo systemd
-          echo "XRDP+XFCE enabled on Debian 12"
+          PASSWORD="${RDP_PASS:-RDPlinux2026!}"
+          echo "runner:$PASSWORD" | sudo chpasswd
+          echo "RDP_PASSWORD_VALUE=$PASSWORD" >> $GITHUB_ENV
+          echo "User password set"
 
-      - name: Smart Notification
+      # ══════════════════════════════════════════════
+      #  STEP 3C: macOS - تعيين متغير كلمة السر
+      # ══════════════════════════════════════════════
+      - name: "[macOS] Set Password Variable"
+        if: runner.os == 'macOS'
+        env:
+          RDP_PASS: ${{ secrets.RDP_PASSWORD }}
         run: |
-          echo "Notification Style: Silent | XRDP Active"
+          PASSWORD="${RDP_PASS:-RDPmac2026!}"
+          echo "RDP_PASSWORD_VALUE=$PASSWORD" >> $GITHUB_ENV
+          echo "Password variable set"
 
-  fedora-40:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux' || github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    container:
-      image: fedora:40
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup XRDP + XFCE - Fedora 40
+      # ══════════════════════════════════════════════
+      #  STEP 4: تثبيت ngrok (كل المنصات)
+      # ══════════════════════════════════════════════
+      - name: "[Windows] Install ngrok"
+        if: runner.os == 'Windows'
         run: |
-          echo "=== V6 - Fedora 40 (XRDP+XFCE) ==="
-          echo "Platform: Fedora 40 | Arch: x64 | Protocol: XRDP"
-          dnf install -y xfce4 xfce4-goodies xrdp xorgxrdp
-          systemctl enable xrdp
-          echo "XRDP+XFCE enabled on Fedora 40"
+          $ngrokUrl = "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
+          $zipPath = "$env:TEMP\ngrok.zip"
+          $installPath = "$env:TEMP\ngrok"
+          Invoke-WebRequest -Uri $ngrokUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $installPath -Force
+          Remove-Item $zipPath -Force
+          $ngrokExe = Get-ChildItem -Path $installPath -Filter "ngrok.exe" -Recurse | Select-Object -First 1
+          if ($ngrokExe) {
+              echo "NGROK_EXE=$($ngrokExe.FullName)" >> $env:GITHUB_ENV
+              echo "$(Split-Path $ngrokExe.FullName)" >> $env:GITHUB_PATH
+              Write-Host "ngrok installed"
+          } else { Write-Error "ngrok not found"; exit 1 }
 
-      - name: Smart Notification
+      - name: "[Linux/macOS] Install ngrok"
+        if: runner.os != 'Windows'
         run: |
-          echo "Notification Style: Silent | XRDP Active"
+          if [ "$(uname -s)" = "Darwin" ]; then
+              curl -sLo /tmp/ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.zip
+          else
+              curl -sLo /tmp/ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
+          fi
+          sudo unzip -o /tmp/ngrok.zip -d /usr/local/bin/
+          rm /tmp/ngrok.zip
+          sudo chmod +x /usr/local/bin/ngrok
+          echo "NGROK_EXE=/usr/local/bin/ngrok" >> $GITHUB_ENV
+          echo "ngrok installed"
 
-  alpine-lightweight:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux' || github.event_name != 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    container:
-      image: alpine:latest
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup XRDP + XFCE - Alpine (Lightweight)
+      # ══════════════════════════════════════════════
+      #  STEP 5: تشغيل نفق ngrok
+      # ══════════════════════════════════════════════
+      - name: "[Windows] Start ngrok Tunnel"
+        if: runner.os == 'Windows'
+        env:
+          NGROK_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          echo "=== V6 - Alpine Linux (XRDP+XFCE Lightweight) ==="
-          echo "Platform: Alpine | Arch: x64 | Protocol: XRDP | Mode: Lightweight"
-          apk update
-          apk add xfce4 xfce4-terminal xrdp
-          echo "XRDP+XFCE (lightweight) enabled on Alpine"
+          if ([string]::IsNullOrWhiteSpace($env:NGROK_TOKEN)) {
+              Write-Error "NGROK_AUTH_TOKEN secret is not set! Please add it to GitHub Secrets."
+              exit 1
+          }
+          & $env:NGROK_EXE config add-authtoken $env:NGROK_TOKEN
+          $ngrokLog = "$env:TEMP\ngrok.log"
+          $proc = Start-Process -FilePath $env:NGROK_EXE -ArgumentList "tcp $env:RDP_PORT --log=$ngrokLog --log-format=logfmt" -PassThru -WindowStyle Hidden
+          echo "NGROK_PID=$($proc.Id)" >> $env:GITHUB_ENV
+          Start-Sleep -Seconds 10
+          if ($proc.HasExited) {
+              Write-Error "ngrok crashed!"
+              if (Test-Path $ngrokLog) { Get-Content $ngrokLog }
+              exit 1
+          }
+          Write-Host "ngrok running"
 
-      - name: Smart Notification
+      - name: "[Linux/macOS] Start ngrok Tunnel"
+        if: runner.os != 'Windows'
+        env:
+          NGROK_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          echo "Notification Style: Silent | XRDP Active | Lightweight Mode"
+          if [ -z "$NGROK_TOKEN" ]; then
+              echo "NGROK_AUTH_TOKEN secret is not set! Please add it to GitHub Secrets."
+              exit 1
+          fi
+          ngrok config add-authtoken "$NGROK_TOKEN"
+          nohup ngrok tcp "$RDP_PORT" --log=/tmp/ngrok.log --log-format=logfmt > /dev/null 2>&1 &
+          echo "NGROK_PID=$!" >> $GITHUB_ENV
+          sleep 10
+          if ! kill -0 $! 2>/dev/null; then
+              echo "ngrok crashed!"
+              cat /tmp/ngrok.log 2>/dev/null || true
+              exit 1
+          fi
+          echo "ngrok running"
 
-  # ═══════════════════════════════════════════
-  # macOS - 3 Runners (VNC) بما فيها ARM
-  # ═══════════════════════════════════════════
-
-  macos-ventura-intel:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos' || github.event_name != 'workflow_dispatch' }}
-    runs-on: macos-13
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup VNC - macOS Ventura (Intel)
+      # ══════════════════════════════════════════════
+      #  STEP 6: الحصول على عنوان النفق
+      # ══════════════════════════════════════════════
+      - name: "[Windows] Get Tunnel Address"
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          echo "=== V6 - macOS Ventura (VNC) ==="
-          echo "Platform: macOS Ventura | Arch: x86_64 (Intel) | Protocol: VNC"
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCOnlyLocalConnections -bool false
-          sudo defaults write /Library/Preferences/com.apple.RemoteDesktop TextVNCPassword -string "${VNC_PASSWORD:-v6secure}"
-          echo "VNC enabled on macOS Ventura (Intel)"
+          $ngrokApi = "http://127.0.0.1:4040/api/tunnels"
+          $tunnelInfo = $null
+          $retries = 0
+          while (-not $tunnelInfo -and $retries -lt 30) {
+              try {
+                  $response = Invoke-RestMethod -Uri $ngrokApi -TimeoutSec 5
+                  if ($response.tunnels -and $response.tunnels.Count -gt 0) { $tunnelInfo = $response.tunnels[0] }
+              } catch {}
+              Start-Sleep -Seconds 5
+              $retries++
+              Write-Host "Waiting for tunnel... attempt $retries"
+          }
+          if (-not $tunnelInfo) { Write-Error "Failed to get tunnel address"; exit 1 }
+          $publicUrl = $tunnelInfo.public_url
+          Write-Host "Tunnel URL: $publicUrl"
+          if ($publicUrl -match "tcp://(.*):(\d+)") {
+              echo "NGROK_ADDRESS=$($Matches[1])" >> $env:GITHUB_ENV
+              echo "NGROK_PORT=$($Matches[2])" >> $env:GITHUB_ENV
+              echo "NGROK_FULL=$($Matches[1])`:$($Matches[2])" >> $env:GITHUB_ENV
+          } else { echo "NGROK_FULL=$publicUrl" >> $env:GITHUB_ENV }
+          Write-Host "Address obtained: $env:NGROK_FULL"
 
-      - name: Smart Notification - VNC Active
+      - name: "[Linux/macOS] Get Tunnel Address"
+        if: runner.os != 'Windows'
         run: |
-          echo "=== Smart Notification (Adaptive) ==="
-          echo "Connection Type: VNC Active"
-          echo "Notification Style: Visual Only"
-          echo "System Tray: Enabled | Sound: Disabled | Popups: Enabled"
-          echo "Email Fallback: Disabled"
+          for i in $(seq 1 30); do
+              DATA=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null || echo "")
+              URL=$(echo "$DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
+              if [ -n "$URL" ]; then
+                  ADDRESS=$(echo "$URL" | sed 's|tcp://||')
+                  HOST=$(echo "$ADDRESS" | cut -d: -f1)
+                  PORT=$(echo "$ADDRESS" | cut -d: -f2)
+                  echo "NGROK_ADDRESS=$HOST" >> $GITHUB_ENV
+                  echo "NGROK_PORT=$PORT" >> $GITHUB_ENV
+                  echo "NGROK_FULL=$ADDRESS" >> $GITHUB_ENV
+                  echo "Address obtained: $ADDRESS"
+                  exit 0
+              fi
+              echo "Waiting... attempt $i"
+              sleep 5
+          done
+          cat /tmp/ngrok.log 2>/dev/null || true
+          echo "Failed to get tunnel address"
+          exit 1
 
-      - name: Time Alert Setup
+      # ══════════════════════════════════════════════
+      #  STEP 7: إرسال إشعار تيلغرام
+      # ══════════════════════════════════════════════
+      - name: "[All] Notify via Telegram"
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          AUTO_RESTART: ${{ github.event.inputs.auto_restart }}
+          RUNNER_TYPE: ${{ github.event.inputs.runner_type }}
+          SESSION_NUM: ${{ matrix.session_num }}
+        shell: bash
         run: |
-          LIMIT=${{ github.event.inputs.time_limit_minutes || '360' }}
-          WARN=$((LIMIT * 75 / 100))
-          CRITICAL=$((LIMIT * 90 / 100))
-          echo "Time Limit: ${LIMIT} min | Warning: ${WARN} min | Critical: ${CRITICAL} min"
+          if [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
+              echo "Telegram secrets not configured - check GitHub Secrets"
+              echo "=== CONNECTION INFO ==="
+              echo "Type: $RDP_TYPE"
+              echo "Address: $NGROK_FULL"
+              echo "User: $RDP_USER"
+              echo "Pass: $RDP_PASSWORD_VALUE"
+              exit 0
+          fi
 
-      - name: Auto-Reconnect on Failure
-        if: failure()
+          START_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          RESTART_STATUS="OFF"
+          if [ "$AUTO_RESTART" = "true" ]; then RESTART_STATUS="ON"; fi
+
+          NL=$'\n'
+
+          # بناء تعليمات الاتصال حسب نوع المنصة
+          if [ "$RDP_TYPE" = "RDP" ]; then
+              CONNECT="=== Windows RDP ===${NL}1. Open Remote Desktop (mstsc)${NL}2. Address: $NGROK_FULL${NL}3. User: $RDP_USER${NL}4. Pass: $RDP_PASSWORD_VALUE"
+          elif [ "$RDP_TYPE" = "XRDP" ]; then
+              CONNECT="=== Linux XRDP ===${NL}1. Open Remote Desktop (mstsc)${NL}2. Address: $NGROK_FULL${NL}3. User: $RDP_USER${NL}4. Pass: $RDP_PASSWORD_VALUE${NL}5. Session: XFCE"
+          else
+              CONNECT="=== macOS VNC ===${NL}1. Install VNC Viewer${NL}2. Address: $NGROK_FULL${NL}3. Pass: $RDP_PASSWORD_VALUE"
+          fi
+
+          MESSAGE="Server #${SESSION_NUM} Ready!${NL}${NL}Type: $RDP_TYPE${NL}Runner: $RUNNER_TYPE${NL}Address: $NGROK_FULL${NL}User: $RDP_USER${NL}Pass: $RDP_PASSWORD_VALUE${NL}${NL}Started: $START_TIME${NL}Duration: ~6 hours${NL}Auto-Restart: $RESTART_STATUS${NL}${NL}$CONNECT"
+
+          ENCODED_MSG=$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))" "$MESSAGE" 2>/dev/null || echo "")
+          if [ -z "$ENCODED_MSG" ]; then
+              ENCODED_MSG=$(echo "$MESSAGE" | jq -sRr @uri 2>/dev/null || echo "")
+          fi
+
+          if [ -n "$ENCODED_MSG" ]; then
+              curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=${ENCODED_MSG}" > /dev/null 2>&1
+              echo "Telegram notification sent for Session #${SESSION_NUM}"
+          else
+              echo "Failed to encode message"
+          fi
+
+      # ══════════════════════════════════════════════
+      #  STEP 8: إبقاء الاتصال + مؤقت ذكي
+      # ══════════════════════════════════════════════
+      - name: "[Windows] Maintain Connection"
+        if: runner.os == 'Windows'
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SESSION_NUM: ${{ matrix.session_num }}
         run: |
-          echo "=== Auto-Reconnect (Adaptive) ==="
-          echo "Strategy: Backoff retry for VNC"
-          echo "Preserving session state..."
+          Write-Host "============================================"
+          Write-Host "  Session #$env:SESSION_NUM - RDP ACCESS INFO"
+          Write-Host "============================================"
+          Write-Host "  Address: $env:NGROK_FULL"
+          Write-Host "  User:    $env:RDP_USER"
+          Write-Host "  Pass:    $env:RDP_PASSWORD_VALUE"
+          Write-Host "  Time:    350 minutes max"
+          Write-Host "============================================"
 
-  macos-sonoma-arm:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos' || github.event_name != 'workflow_dispatch' }}
-    runs-on: macos-14
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+          $startTime = Get-Date
+          $maxMinutes = 350
+          $notified30 = $false; $notified10 = $false; $notified5 = $false
+          $botToken = $env:TG_BOT_TOKEN; $chatId = $env:TG_CHAT_ID
+          $sn = $env:SESSION_NUM
 
-      - name: Setup VNC - macOS Sonoma (Apple Silicon M1/M2)
-        run: |
-          echo "=== V6 - macOS Sonoma (VNC) ==="
-          echo "Platform: macOS Sonoma | Arch: arm64 (Apple Silicon M1/M2) | Protocol: VNC"
-          echo "Metal Support: Enabled"
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCOnlyLocalConnections -bool false
-          sudo defaults write /Library/Preferences/com.apple.RemoteDesktop TextVNCPassword -string "${VNC_PASSWORD:-v6secure}"
-          echo "VNC enabled on macOS Sonoma (ARM)"
+          while ($true) {
+              $elapsed = (Get-Date) - $startTime
+              $remaining = $maxMinutes - $elapsed.TotalMinutes
+              if ($remaining -le 0) { Write-Host "[S$sn] Time is up!"; break }
+              $h = [math]::Floor($remaining / 60)
+              $m = [math]::Floor($remaining % 60)
+              Write-Host "[S$sn] [$(Get-Date -Format 'HH:mm:ss')] Remaining: ${h}h ${m}m"
 
-      - name: Smart Notification - VNC Active
-        run: |
-          echo "Connection Type: VNC Active (Apple Silicon)"
-          echo "Notification Style: Visual Only | Metal: Enabled"
+              # إشعارات ذكية - 30 دقيقة
+              if ($remaining -le 30 -and -not $notified30 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
+                  $notified30 = $true
+                  $msg = [System.Uri]::EscapeDataString("[S$sn] Warning: Less than 30 minutes remaining!")
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
+              }
+              # إشعارات ذكية - 10 دقائق
+              if ($remaining -le 10 -and -not $notified10 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
+                  $notified10 = $true
+                  $msg = [System.Uri]::EscapeDataString("[S$sn] URGENT: Less than 10 minutes! Save your work!")
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
+              }
+              # إشعارات ذكية - 5 دقائق
+              if ($remaining -le 5 -and -not $notified5 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
+                  $notified5 = $true
+                  $msg = [System.Uri]::EscapeDataString("[S$sn] FINAL: Less than 5 minutes! Stopping soon!")
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
+              }
+              Start-Sleep -Seconds 60
+          }
 
-  macos-sequoia-arm:
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos' || github.event_name != 'workflow_dispatch' }}
-    runs-on: macos-15
-    timeout-minutes: ${{ fromJson(github.event.inputs.time_limit_minutes || '360') }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup VNC - macOS Sequoia (ARM M3/M4)
-        run: |
-          echo "=== V6 - macOS Sequoia (VNC) ==="
-          echo "Platform: macOS Sequoia | Arch: arm64 (Apple Silicon M3/M4) | Protocol: VNC"
-          echo "Metal Support: Enabled | Apple Intelligence: Ready"
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCOnlyLocalConnections -bool false
-          sudo defaults write /Library/Preferences/com.apple.RemoteDesktop TextVNCPassword -string "${VNC_PASSWORD:-v6secure}"
-          echo "VNC enabled on macOS Sequoia (ARM M3/M4)"
-
-      - name: Smart Notification - VNC Active
-        run: |
-          echo "Connection Type: VNC Active (Apple Silicon M3/M4)"
-          echo "Notification Style: Visual Only | Metal: Enabled"
-
-  # ═══════════════════════════════════════════
-  # تنبيهات الوقت - إشعارات ذكية (حصري V6)
-  # ═══════════════════════════════════════════
-
-  time-alert-monitor:
-    if: always()
-    runs-on: ubuntu-latest
-    needs:
-      - windows-server-2019
-      - windows-server-2022
-      - windows-10
-      - windows-11-gpu
-      - ubuntu-2204
-      - ubuntu-2404
-      - debian-12
-      - fedora-40
-      - alpine-lightweight
-      - macos-ventura-intel
-      - macos-sonoma-arm
-      - macos-sequoia-arm
-    steps:
-      - name: Session Time Report
-        run: |
-          echo "========================================"
-          echo "  V6 Remote Desktop - Time Alert Report"
-          echo "========================================"
-          echo "Version: 6.0"
-          echo "Total Runners: 12"
-          echo "  Windows (RDP): 4"
-          echo "  Linux (XRDP+XFCE): 5"
-          echo "  macOS (VNC): 3 (incl. ARM)"
-          echo "Smart Notifications: Adaptive"
-          echo "Auto-Reconnect: Enabled (Adaptive)"
-          echo "Multi-Session: Enabled"
-          echo "Time Alerts: Enabled"
-          echo "========================================"
-
-      - name: Smart Notification - No Active Connection
-        run: |
-          echo "=== Smart Notification (Adaptive) ==="
-          echo "Connection Type: No Active Connection"
-          echo "Notification Style: FULL"
-          echo "System Tray: Enabled"
-          echo "Sound: Enabled"
-          echo "Popups: Enabled"
-          echo "Email: Enabled"
-          echo "Push: Enabled"
-
-      - name: Adaptive Notification Dispatch
-        if: failure()
-        run: |
-          echo "=== Failure Notification ==="
-          echo "Dispatching full notifications for failed runners..."
-          echo "Email: Sent"
-          echo "Push: Sent"
-          echo "System Alert: Triggered"
-
-  # ═══════════════════════════════════════════
-  # ملخص الجلسات المتعددة
-  # ═══════════════════════════════════════════
-
-  session-summary:
-    if: always()
-    runs-on: ubuntu-latest
-    needs:
-      - windows-server-2019
-      - windows-server-2022
-      - windows-10
-      - windows-11-gpu
-      - ubuntu-2204
-      - ubuntu-2404
-      - debian-12
-      - fedora-40
-      - alpine-lightweight
-      - macos-ventura-intel
-      - macos-sonoma-arm
-      - macos-sequoia-arm
-      - time-alert-monitor
-    steps:
-      - name: V6 Multi-Session Summary
+      - name: "[Linux/macOS] Maintain Connection"
+        if: runner.os != 'Windows'
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SESSION_NUM: ${{ matrix.session_num }}
         run: |
           echo "============================================"
-          echo "  V6 Session Summary - All Platforms Complete"
+          echo "  Session #${SESSION_NUM} - ACCESS INFO"
           echo "============================================"
-          echo "Windows Runners:"
-          echo "  1. Windows Server 2019 (RDP/x64)"
-          echo "  2. Windows Server 2022 (RDP/x64)"
-          echo "  3. Windows 10/11 (RDP/x64)"
-          echo "  4. Windows 11 GPU (RDP/x64/GPU)"
-          echo "Linux Runners:"
-          echo "  5. Ubuntu 22.04 LTS (XRDP+XFCE/x64)"
-          echo "  6. Ubuntu 24.04 LTS (XRDP+XFCE/x64)"
-          echo "  7. Debian 12 (XRDP+XFCE/x64)"
-          echo "  8. Fedora 40 (XRDP+XFCE/x64)"
-          echo "  9. Alpine Linux (XRDP+XFCE/Lightweight)"
-          echo "macOS Runners:"
-          echo "  10. macOS Ventura (VNC/Intel)"
-          echo "  11. macOS Sonoma (VNC/ARM M1-M2)"
-          echo "  12. macOS Sequoia (VNC/ARM M3-M4)"
+          echo "  Address: $NGROK_FULL"
+          echo "  User:    $RDP_USER"
+          echo "  Pass:    $RDP_PASSWORD_VALUE"
+          echo "  Time:    350 minutes max"
           echo "============================================"
-          echo "V6 Exclusive Features:"
-          echo "  [+] Smart Adaptive Notifications"
-          echo "  [+] Auto-Reconnect (Adaptive Strategy)"
-          echo "  [+] Multi-Session Support"
-          echo "  [+] Time Alerts (50%/75%/90%/Critical)"
-          echo "  [+] ARM Support (macOS Apple Silicon)"
-          echo "============================================"
+
+          START=$(date +%s)
+          MAX_SECONDS=$((350 * 60))
+          NOTIFIED30=0; NOTIFIED10=0; NOTIFIED5=0
+          SN=$SESSION_NUM
+
+          while true; do
+              NOW=$(date +%s)
+              ELAPSED=$((NOW - START))
+              REMAINING=$((MAX_SECONDS - ELAPSED))
+              if [ $REMAINING -le 0 ]; then echo "[S${SN}] Time is up!"; break; fi
+              H=$((REMAINING / 3600))
+              M=$(((REMAINING % 3600) / 60))
+              echo "[S${SN}] [$(date '+%H:%M:%S')] Remaining: ${H}h ${M}m"
+
+              # إشعارات ذكية
+              if [ $REMAINING -le 1800 ] && [ $NOTIFIED30 -eq 0 ] && [ -n "$TG_BOT_TOKEN" ]; then
+                  NOTIFIED30=1
+                  curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Warning%3A%20Less%20than%2030%20minutes!" > /dev/null 2>&1 || true
+              fi
+              if [ $REMAINING -le 600 ] && [ $NOTIFIED10 -eq 0 ] && [ -n "$TG_BOT_TOKEN" ]; then
+                  NOTIFIED10=1
+                  curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20URGENT%3A%20Less%20than%2010%20minutes!" > /dev/null 2>&1 || true
+              fi
+              if [ $REMAINING -le 300 ] && [ $NOTIFIED5 -eq 0 ] && [ -n "$TG_BOT_TOKEN" ]; then
+                  NOTIFIED5=1
+                  curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20FINAL%3A%20Less%20than%205%20minutes!" > /dev/null 2>&1 || true
+              fi
+              sleep 60
+          done
+
+      # ══════════════════════════════════════════════
+      #  STEP 9A: إعادة التشغيل التلقائي
+      # ══════════════════════════════════════════════
+      - name: "[Windows] Auto-Restart"
+        if: ${{ github.event.inputs.auto_restart == 'true' && runner.os == 'Windows' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SESSION_NUM: ${{ matrix.session_num }}
+        shell: pwsh
+        run: |
+          $sn = $env:SESSION_NUM
+          if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
+              $msg = [System.Uri]::EscapeDataString("[S$sn] Session ended. Auto-restarting all sessions...")
+              try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$msg" -Method Get -TimeoutSec 10 } catch {}
+          }
+
+          $repo = "${{ github.repository }}"
+          $wf = "${{ github.workflow_id }}"
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
+          $body = @{
+              ref = "${{ github.ref }}"
+              inputs = @{
+                  auto_restart = "true"
+                  runner_type = "${{ github.event.inputs.runner_type }}"
+                  session_count = "${{ github.event.inputs.session_count }}"
+              }
+          } | ConvertTo-Json
+
+          try {
+              Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/actions/workflows/$wf/dispatches" -Method Post -Headers $headers -Body $body -ContentType "application/json"
+              Write-Host "Auto-restart triggered!"
+          } catch {
+              try {
+                  & gh workflow run $wf --ref "${{ github.ref }}" -f auto_restart=true -f runner_type="${{ github.event.inputs.runner_type }}" -f session_count="${{ github.event.inputs.session_count }}"
+                  Write-Host "Auto-restart via CLI!"
+              } catch {
+                  Write-Host "Auto-restart failed!"
+                  if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
+                      $failMsg = [System.Uri]::EscapeDataString("[S$sn] Auto-restart failed! Restart manually.")
+                      try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$failMsg" -Method Get -TimeoutSec 10 } catch {}
+                  }
+              }
+          }
+          exit 0
+
+      - name: "[Linux/macOS] Auto-Restart"
+        if: ${{ github.event.inputs.auto_restart == 'true' && runner.os != 'Windows' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SESSION_NUM: ${{ matrix.session_num }}
+        run: |
+          SN=$SESSION_NUM
+          if [ -n "$TG_BOT_TOKEN" ]; then
+              curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Session%20ended.%20Auto-restarting..." > /dev/null 2>&1 || true
+          fi
+
+          REPO="${{ github.repository }}"
+          WF="${{ github.workflow_id }}"
+          REF="${{ github.ref }}"
+          RUNNER="${{ github.event.inputs.runner_type }}"
+          COUNT="${{ github.event.inputs.session_count }}"
+          BODY="{\"ref\":\"$REF\",\"inputs\":{\"auto_restart\":\"true\",\"runner_type\":\"$RUNNER\",\"session_count\":\"$COUNT\"}}"
+
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              -d "$BODY" \
+              "https://api.github.com/repos/$REPO/actions/workflows/$WF/dispatches")
+
+          if [ "$HTTP_CODE" = "204" ]; then
+              echo "Auto-restart triggered!"
+          else
+              echo "API failed ($HTTP_CODE), trying gh CLI..."
+              gh workflow run "$WF" --ref "$REF" -f auto_restart=true -f runner_type="$RUNNER" -f session_count="$COUNT" 2>/dev/null && echo "Auto-restart via CLI!" || {
+                  echo "Auto-restart failed!"
+                  if [ -n "$TG_BOT_TOKEN" ]; then
+                      curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Auto-restart%20failed!" > /dev/null 2>&1 || true
+                  fi
+              }
+          fi
+
+      # ══════════════════════════════════════════════
+      #  STEP 9B: انتهاء الجلسة (بدون إعادة تشغيل)
+      # ══════════════════════════════════════════════
+      - name: "[Windows] Notify Session Ended"
+        if: ${{ github.event.inputs.auto_restart != 'true' && runner.os == 'Windows' }}
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SESSION_NUM: ${{ matrix.session_num }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) { exit 0 }
+          $sn = $env:SESSION_NUM
+          $msg = [System.Uri]::EscapeDataString("[S$sn] Session ended. Auto-restart is OFF.")
+          try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$msg" -Method Get -TimeoutSec 10 } catch {}
+
+      - name: "[Linux/macOS] Notify Session Ended"
+        if: ${{ github.event.inputs.auto_restart != 'true' && runner.os != 'Windows' }}
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SESSION_NUM: ${{ matrix.session_num }}
+        run: |
+          if [ -z "$TG_BOT_TOKEN" ]; then exit 0; fi
+          SN=$SESSION_NUM
+          curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Session%20ended.%20Auto-restart%20OFF." > /dev/null 2>&1 || true
