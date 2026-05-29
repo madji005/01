@@ -1,33 +1,25 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
-# ║  نسخة 10 حسابات - V6.3 Ultimate Remote Desktop Workflow            ║
+# ║  V6.9 Ultimate Remote Desktop Workflow                               ║
 # ║  3 منصات: Windows (RDP) + Linux (XRDP+XFCE) + macOS (VNC)         ║
-# ║  12 خيار Runner + 10 توكنات ngrok + مدة قابلة للتخصيص            ║
+# ║  12 خيار Runner + مدة قابلة للتخصيص + إعادة تشغيل تلقائية         ║
 # ║                                                                      ║
-# ║  البنية: N سيرفرات مستقلة (كل جلسة = سيرفر منفصل)                 ║
-# ║  كل سيرفر يحاول التوكن المخصص له أولاً، وإذا فشل ينتقل للتالي    ║
-# ║                                                                      ║
-# ║  نظام التوكنات الاحتياطي:                                          ║
-# ║    الجلسة 1 → تجرب التوكن 1 ثم 2 ثم 3 ... حتى 10                  ║
-# ║    الجلسة 2 → تجرب التوكن 2 ثم 3 ثم 4 ... حتى 10 ثم 1             ║
-# ║    الجلسة N → تجرب التوكن N ثم N+1 ... حتى 10 ثم 1 ... N-1        ║
+# ║  الجديد في V6.9:                                                    ║
+# ║    - إشعارات تيلغرام بتصميم جميل ومنظم                              ║
+# ║    - عنوان ngrok كنص قابل للنسخ (ليس رابط) باستخدام <code>      ║
+# ║    - فواصل أسطر ورموز تعبيرية وتنسيق HTML                          ║
+# ║    - إصلاح حرج: فحص ngrok عبر API بدلاً من kill -0 PID           ║
+# ║    - إعادة تشغيل ngrok داخل الجلسة عند موت النفق                  ║
 # ║                                                                      ║
 # ║  الأسرار المطلوبة في GitHub Secrets:                                ║
-# ║    - NGROK_AUTH_TOKEN_1   (توكن ngrok رقم 1)  ★ مطلوب             ║
-# ║    - NGROK_AUTH_TOKEN_2   (توكن ngrok رقم 2)  ★ مطلوب             ║
-# ║    - NGROK_AUTH_TOKEN_3   (توكن ngrok رقم 3)  ★ مطلوب             ║
-# ║    - NGROK_AUTH_TOKEN_4   (توكن ngrok رقم 4)  اختياري             ║
-# ║    - NGROK_AUTH_TOKEN_5   (توكن ngrok رقم 5)  اختياري             ║
-# ║    - NGROK_AUTH_TOKEN_6   (توكن ngrok رقم 6)  اختياري             ║
-# ║    - NGROK_AUTH_TOKEN_7   (توكن ngrok رقم 7)  اختياري             ║
-# ║    - NGROK_AUTH_TOKEN_8   (توكن ngrok رقم 8)  اختياري             ║
-# ║    - NGROK_AUTH_TOKEN_9   (توكن ngrok رقم 9)  اختياري             ║
-# ║    - NGROK_AUTH_TOKEN_10  (توكن ngrok رقم 10) اختياري             ║
+# ║    - NGROK_AUTH_TOKEN_1   (توكن ngrok رقم 1)                       ║
+# ║    - NGROK_AUTH_TOKEN_2   (توكن ngrok رقم 2)  اختياري             ║
+# ║    - ... إلى NGROK_AUTH_TOKEN_10                                    ║
 # ║    - TELEGRAM_BOT_TOKEN   (رمز بوت تيلغرام)                        ║
 # ║    - TELEGRAM_CHAT_ID     (معرف محادثة تيلغرام)                    ║
 # ║    - RDP_PASSWORD         (كلمة سر RDP - اختياري)                   ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 
-name: نسخة 10 حسابات - V6 Ultimate RDP
+name: V6.9 Ultimate RDP
 
 on:
   workflow_dispatch:
@@ -88,7 +80,7 @@ permissions:
   contents: read
 
 env:
-  VERSION: "6.3"
+  VERSION: "6.9"
 
 concurrency:
   group: v6-rdp-${{ github.ref }}
@@ -108,7 +100,6 @@ jobs:
       - name: Validate & Generate Matrix
         id: validate
         run: |
-          # التحقق من المدة
           DUR="${{ github.event.inputs.duration_minutes }}"
           if ! echo "$DUR" | grep -qP '^\d+$'; then DUR=360; fi
           if [ "$DUR" -lt 10 ]; then DUR=10; fi
@@ -132,7 +123,6 @@ jobs:
 
   # ══════════════════════════════════════════════════════════════
   #     Job رئيسي - كل جلسة تعمل على سيرفر منفصل
-  #     مع نظام احتياطي للتوكنات
   # ══════════════════════════════════════════════════════════════
   rdp-session:
     needs: setup
@@ -143,7 +133,6 @@ jobs:
     timeout-minutes: ${{ fromJson(needs.setup.outputs.timeout) }}
 
     env:
-      # ════ 10 توكنات ngrok ════
       NGROK_TOKEN_1: ${{ secrets.NGROK_AUTH_TOKEN_1 }}
       NGROK_TOKEN_2: ${{ secrets.NGROK_AUTH_TOKEN_2 }}
       NGROK_TOKEN_3: ${{ secrets.NGROK_AUTH_TOKEN_3 }}
@@ -156,26 +145,25 @@ jobs:
       NGROK_TOKEN_10: ${{ secrets.NGROK_AUTH_TOKEN_10 }}
 
     steps:
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       #  STEP 1: معلومات الجلسة
-      # ══════════════════════════════════════════════
-      - name: "📋 Session Info"
+      # ════════════════════════════════
+      - name: "Session Info"
         run: |
           echo "============================================"
-          echo "  V6.3 Ultimate RDP - Session ${{ matrix.session_num }}"
+          echo "  V6.9 Ultimate RDP - Session ${{ matrix.session_num }}"
           echo "============================================"
           echo "  Runner:    ${{ github.event.inputs.runner_type }}"
           echo "  OS:        ${{ runner.os }}"
-          echo "  Arch:      ${{ runner.arch }}"
           echo "  Session:   ${{ matrix.session_num }} of ${{ github.event.inputs.session_count }}"
+          echo "  Tunnel:    ngrok"
           echo "  Duration:  ${{ needs.setup.outputs.duration }} minutes"
           echo "  Restart:   ${{ github.event.inputs.auto_restart }}"
-          echo "  Token:     Starting with NGROK_AUTH_TOKEN_${{ matrix.session_num }}"
           echo "============================================"
 
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       #  STEP 2A: WINDOWS - تهيئة RDP
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       - name: "[Windows] Configure RDP"
         if: runner.os == 'Windows'
         shell: pwsh
@@ -202,9 +190,9 @@ jobs:
           Write-Host "Windows RDP configured on port 3389"
           exit 0
 
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       #  STEP 2B: LINUX - تثبيت XRDP + XFCE
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       - name: "[Linux] Install XRDP + XFCE Desktop"
         if: runner.os == 'Linux'
         run: |
@@ -232,9 +220,9 @@ jobs:
           echo "RDP_TYPE=XRDP" >> $GITHUB_ENV
           echo "RDP_USER=runner" >> $GITHUB_ENV
 
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       #  STEP 2C: macOS - تثبيت VNC Server
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       - name: "[macOS] Install VNC Server"
         if: runner.os == 'macOS'
         run: |
@@ -259,9 +247,9 @@ jobs:
           echo "RDP_TYPE=VNC" >> $GITHUB_ENV
           echo "RDP_USER=runner" >> $GITHUB_ENV
 
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       #  STEP 3A: WINDOWS - إنشاء مستخدم RDP
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       - name: "[Windows] Create RDP User"
         if: runner.os == 'Windows'
         env:
@@ -289,12 +277,6 @@ jobs:
 
       # ══════════════════════════════════════════════════════════════
       #  STEP 3A.1: WINDOWS - تثبيت البرامج والأدوات
-      #  ─────────────────────────────────────────────────────────────
-      #  Notepad++ 64x | FFmpeg | Python 3.12 + PATH
-      #  chromedriver (متوافق مع Chrome المثبت)
-      #  pip packages: undetected-chromedriver, selenium,
-      #  webdriver-manager, selenium-stealth, requests,
-      #  psutil, pyautogui, PySide6
       # ══════════════════════════════════════════════════════════════
       - name: "[Windows] Install Software & Tools"
         if: runner.os == 'Windows'
@@ -327,10 +309,8 @@ jobs:
           try {
               Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegZip -MaximumRetryCount 3
               Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegDir -Force
-              # البحث عن مجلد bin داخل المجلد المستخرج
               $ffmpegBin = Get-ChildItem -Path $ffmpegDir -Filter "bin" -Directory -Recurse | Select-Object -First 1
               if ($ffmpegBin) {
-                  # نسخ إلى موقع ثابت
                   $destDir = "C:\ffmpeg\bin"
                   New-Item -Path "C:\ffmpeg" -ItemType Directory -Force | Out-Null
                   Copy-Item -Path "$($ffmpegBin.FullName)\*" -Destination $destDir -Force
@@ -350,10 +330,7 @@ jobs:
           $pyInstaller = "$env:TEMP\python_installer.exe"
           try {
               Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -MaximumRetryCount 3
-              # تثبيت مع إضافة إلى PATH لجميع المستخدمين
               Start-Process -FilePath $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1 Include_test=0" -Wait -NoNewWindow
-
-              # إضافة مسارات Python إلى PATH و GITHUB_PATH
               $pyPaths = @(
                   "C:\Program Files\Python312",
                   "C:\Program Files\Python312\Scripts",
@@ -362,8 +339,6 @@ jobs:
               foreach ($p in $pyPaths) {
                   if (Test-Path $p) { echo "$p" >> $env:GITHUB_PATH }
               }
-
-              # التحقق
               $pyExe = "C:\Program Files\Python312\python.exe"
               if (Test-Path $pyExe) {
                   $pyVer = & $pyExe --version 2>&1
@@ -372,32 +347,25 @@ jobs:
           } catch { Write-Host "  WARNING: Python install failed - skipping" }
           finally { Remove-Item $pyInstaller -Force -ErrorAction SilentlyContinue }
 
-          # تحديث PATH للجلسة الحالية
           $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
 
-          # ── 4. chromedriver (متوافق مع Chrome المثبت) ──
+          # ── 4. chromedriver ──
           Write-Host "[4/6] Installing chromedriver..."
           try {
-              # كشف نسخة Chrome المثبتة
               $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
               $chromeVersion = $null
               if (Test-Path $chromePath) {
                   $chromeVersion = (Get-Item $chromePath).VersionInfo.FileVersion
                   Write-Host "  Detected Chrome version: $chromeVersion"
               }
-
               if ($chromeVersion) {
-                  # استخراج النسخة الكاملة
                   $parts = $chromeVersion -split '\.'
                   $majorVersion = $parts[0]
-
-                  # محاولة التحميل من Chrome for Testing API
                   $cdUrl = $null
                   try {
                       $cf2t = Invoke-RestMethod -Uri "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" -TimeoutSec 15
                       $matching = $cf2t.versions | Where-Object { $_.version -eq $chromeVersion -and $_.downloads.chromedriver -ne $null }
                       if (-not $matching) {
-                          # البحث عن أقرب نسخة من نفس النسخة الكبرى
                           $matching = $cf2t.versions | Where-Object { $_.version -like "$majorVersion.*" -and $_.downloads.chromedriver -ne $null } | Select-Object -Last 1
                       }
                       if ($matching) {
@@ -406,12 +374,9 @@ jobs:
                           Write-Host "  Found chromedriver version: $($matching.version)"
                       }
                   } catch { Write-Host "  Chrome for Testing API failed, trying direct URL..." }
-
-                  # محاولة مباشرة إذا فشلت API
                   if (-not $cdUrl) {
                       $cdUrl = "https://storage.googleapis.com/chrome-for-testing-public/$chromeVersion/win64/chromedriver-win64.zip"
                   }
-
                   $cdZip = "$env:TEMP\chromedriver.zip"
                   $cdDir = "$env:TEMP\chromedriver"
                   try {
@@ -420,11 +385,9 @@ jobs:
                       $cdExe = Get-ChildItem -Path $cdDir -Filter "chromedriver.exe" -Recurse | Select-Object -First 1
                       if ($cdExe) {
                           Copy-Item -Path $cdExe.FullName -Destination "C:\Windows\System32\chromedriver.exe" -Force
-                          Write-Host "  chromedriver installed: $(& 'C:\Windows\System32\chromedriver.exe' --version 2>&1)"
+                          Write-Host "  chromedriver installed"
                       }
-                  } catch {
-                      Write-Host "  WARNING: chromedriver download failed - undetected-chromedriver will handle it"
-                  }
+                  } catch { Write-Host "  WARNING: chromedriver download failed - undetected-chromedriver will handle it" }
                   finally {
                       Remove-Item $cdZip -Force -ErrorAction SilentlyContinue
                       Remove-Item $cdDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -436,69 +399,38 @@ jobs:
           Write-Host "[5/6] Installing Python packages..."
           $pyExe = "C:\Program Files\Python312\python.exe"
           if (-not (Test-Path $pyExe)) {
-              # محاولة البحث في PATH
               $pyExe = (Get-Command python -ErrorAction SilentlyContinue).Source
           }
           if ($pyExe) {
-              # ترقية pip أولاً
               & $pyExe -m pip install --upgrade pip 2>&1 | Select-Object -Last 2
-
               $packages = @(
-                  "undetected-chromedriver",
-                  "selenium",
-                  "webdriver-manager",
-                  "selenium-stealth",
-                  "requests",
-                  "psutil",
-                  "pyautogui",
-                  "PySide6"
+                  "undetected-chromedriver", "selenium", "webdriver-manager",
+                  "selenium-stealth", "requests", "psutil", "pyautogui", "PySide6"
               )
-
               foreach ($pkg in $packages) {
                   Write-Host "  Installing $pkg..."
                   & $pyExe -m pip install $pkg 2>&1 | Select-Object -Last 1
               }
-
-              # عرض الحزم المثبتة
               Write-Host ""
               Write-Host "  Installed packages:"
               & $pyExe -m pip list 2>&1 | Select-String -Pattern "selenium|undetected|webdriver|stealth|requests|psutil|pyautogui|PySide"
-          } else {
-              Write-Host "  WARNING: Python not found, cannot install pip packages"
-          }
+          } else { Write-Host "  WARNING: Python not found, cannot install pip packages" }
 
           # ── 6. التحقق النهائي ──
           Write-Host ""
           Write-Host "[6/6] Final verification..."
           Write-Host "============================================"
-
-          # Notepad++
-          $nppExe = "C:\Program Files\Notepad++\notepad++.exe"
-          if (Test-Path $nppExe) { Write-Host "  Notepad++:   OK" } else { Write-Host "  Notepad++:   NOT FOUND" }
-
-          # FFmpeg
-          $ffExe = "C:\ffmpeg\bin\ffmpeg.exe"
-          if (Test-Path $ffExe) { Write-Host "  FFmpeg:      OK" } else { Write-Host "  FFmpeg:      NOT FOUND" }
-
-          # Python
+          if (Test-Path "C:\Program Files\Notepad++\notepad++.exe") { Write-Host "  Notepad++:   OK" } else { Write-Host "  Notepad++:   NOT FOUND" }
+          if (Test-Path "C:\ffmpeg\bin\ffmpeg.exe") { Write-Host "  FFmpeg:      OK" } else { Write-Host "  FFmpeg:      NOT FOUND" }
           if (Test-Path "C:\Program Files\Python312\python.exe") {
-              $pv = & "C:\Program Files\Python312\python.exe" --version 2>&1
-              Write-Host "  Python:      $pv"
+              Write-Host "  Python:      $(& 'C:\Program Files\Python312\python.exe' --version 2>&1)"
           } else { Write-Host "  Python:      NOT FOUND" }
-
-          # chromedriver
-          if (Test-Path "C:\Windows\System32\chromedriver.exe") {
-              $cv = & "C:\Windows\System32\chromedriver.exe" --version 2>&1
-              Write-Host "  chromedriver: $cv"
-          } else { Write-Host "  chromedriver: NOT FOUND (undetected-chromedriver will auto-download)" }
-
-          Write-Host "============================================"
-          Write-Host "  Software installation complete!"
+          if (Test-Path "C:\Windows\System32\chromedriver.exe") { Write-Host "  chromedriver: OK" } else { Write-Host "  chromedriver: NOT FOUND" }
           Write-Host "============================================"
 
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       #  STEP 3B: LINUX - تعيين كلمة سر المستخدم
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       - name: "[Linux] Set User Password"
         if: runner.os == 'Linux'
         env:
@@ -509,9 +441,9 @@ jobs:
           echo "RDP_PASSWORD_VALUE=$PASSWORD" >> $GITHUB_ENV
           echo "User password set"
 
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       #  STEP 3C: macOS - تعيين متغير كلمة السر
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
       - name: "[macOS] Set Password Variable"
         if: runner.os == 'macOS'
         env:
@@ -520,9 +452,9 @@ jobs:
           PASSWORD="${RDP_PASS:-RDPmac2026!}"
           echo "RDP_PASSWORD_VALUE=$PASSWORD" >> $GITHUB_ENV
 
-      # ══════════════════════════════════════════════
-      #  STEP 4: تثبيت ngrok
-      # ══════════════════════════════════════════════
+      # ══════════════════════════════════════════════════════════════
+      #  STEP 4: NGROK - تثبيت وتشغيل النفق
+      # ══════════════════════════════════════════════════════════════
       - name: "[Windows] Install ngrok"
         if: runner.os == 'Windows'
         run: |
@@ -552,7 +484,6 @@ jobs:
           rm /tmp/ngrok.zip
           sudo chmod +x /usr/local/bin/ngrok
           echo "NGROK_EXE=/usr/local/bin/ngrok" >> $GITHUB_ENV
-          echo "ngrok installed"
 
       - name: "[macOS] Install ngrok"
         if: runner.os == 'macOS'
@@ -562,18 +493,7 @@ jobs:
           rm /tmp/ngrok.zip
           sudo chmod +x /usr/local/bin/ngrok
           echo "NGROK_EXE=/usr/local/bin/ngrok" >> $GITHUB_ENV
-          echo "ngrok installed"
 
-      # ══════════════════════════════════════════════════════════════
-      #  STEP 5: تشغيل نفق ngrok مع نظام التوكنات الاحتياطي
-      #  ─────────────────────────────────────────────────────────────
-      #  الآلية:
-      #    - تبدأ الجلسة N بالتوكن N
-      #    - إذا فشل التوكن N → تجرب N+1, N+2, ... حتى 10
-      #    - ثم تعود إلى 1, 2, ... حتى N-1
-      #    - يتوقف عند أول توكن ناجح
-      #    - إذا فشلت كل التوكنات → تتوقف الجلسة
-      # ══════════════════════════════════════════════════════════════
       - name: "[Windows] Start ngrok with Token Fallback"
         if: runner.os == 'Windows'
         shell: pwsh
@@ -581,70 +501,46 @@ jobs:
           $sessionNum = [int]"${{ matrix.session_num }}"
           $foundToken = $null
 
-          # ترتيب التوكنات: ابدأ برقم الجلسة ثم دوّر
           $tokenOrder = @()
           for ($i = $sessionNum; $i -le 10; $i++) { $tokenOrder += $i }
           for ($i = 1; $i -lt $sessionNum; $i++) { $tokenOrder += $i }
 
-          Write-Host "============================================"
-          Write-Host "  Session #$sessionNum - Token Fallback System"
-          Write-Host "  Token order: $($tokenOrder -join ' -> ')"
-          Write-Host "============================================"
+          Write-Host "Token order: $($tokenOrder -join ' -> ')"
 
           foreach ($t in $tokenOrder) {
               $tokenVar = "NGROK_TOKEN_$t"
               $token = (Get-Item "env:$tokenVar" -ErrorAction SilentlyContinue).Value
               if ([string]::IsNullOrWhiteSpace($token)) {
-                  Write-Host "[Token #$t] Not set in secrets - skipping"
+                  Write-Host "[Token #$t] Not set - skipping"
                   continue
               }
 
               Write-Host "[Token #$t] Trying..."
-
-              # إيقاف أي ngrok سابق
               Get-Process -Name ngrok -ErrorAction SilentlyContinue | Stop-Process -Force
               Start-Sleep -Seconds 2
 
-              # تهيئة التوكن
               & $env:NGROK_EXE config add-authtoken $token 2>&1
-
-              # حذف ملف السجل القديم
               $ngrokLog = "$env:TEMP\ngrok.log"
               Remove-Item -Path $ngrokLog -Force -ErrorAction SilentlyContinue
-
-              # تشغيل ngrok
               $proc = Start-Process -FilePath $env:NGROK_EXE -ArgumentList "tcp $env:RDP_PORT --log=$ngrokLog --log-format=logfmt" -PassThru -WindowStyle Hidden
-
-              # الانتظار حتى يبدأ
               Start-Sleep -Seconds 10
 
-              # التحقق من أن العملية لا تزال تعمل
               if ($proc.HasExited) {
-                  Write-Host "[Token #$t] FAILED - ngrok crashed!"
-                  if (Test-Path $ngrokLog) {
-                      Write-Host "--- ngrok log ---"
-                      Get-Content $ngrokLog -Tail 10
-                      Write-Host "--- end log ---"
-                  }
+                  Write-Host "[Token #$t] FAILED - crashed!"
+                  if (Test-Path $ngrokLog) { Get-Content $ngrokLog -Tail 5 }
                   continue
               }
 
-              # التحقق من أن النفق يعمل عبر API
               $tunnelOk = $false
               try {
                   Start-Sleep -Seconds 3
                   $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
-                  if ($response.tunnels -and $response.tunnels.Count -gt 0) {
-                      $tunnelOk = $true
-                  }
+                  if ($response.tunnels -and $response.tunnels.Count -gt 0) { $tunnelOk = $true }
               } catch {
-                  Write-Host "[Token #$t] Tunnel API not ready, waiting..."
                   Start-Sleep -Seconds 5
                   try {
                       $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
-                      if ($response.tunnels -and $response.tunnels.Count -gt 0) {
-                          $tunnelOk = $true
-                      }
+                      if ($response.tunnels -and $response.tunnels.Count -gt 0) { $tunnelOk = $true }
                   } catch {}
               }
 
@@ -652,18 +548,18 @@ jobs:
                   $foundToken = $t
                   echo "NGROK_PID=$($proc.Id)" >> $env:GITHUB_ENV
                   echo "USED_TOKEN_IDX=$t" >> $env:GITHUB_ENV
-                  Write-Host "[Token #$t] SUCCESS - Tunnel established for Session #$sessionNum!"
+                  echo "TUNNEL_TYPE=ngrok" >> $env:GITHUB_ENV
+                  Write-Host "[Token #$t] SUCCESS!"
                   break
               } else {
-                  Write-Host "[Token #$t] FAILED - No tunnel established"
+                  Write-Host "[Token #$t] FAILED - no tunnel"
                   Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
                   Start-Sleep -Seconds 2
               }
           }
 
           if (-not $foundToken) {
-              Write-Error "ALL TOKENS FAILED for Session #$sessionNum!"
-              Write-Error "Make sure NGROK_AUTH_TOKEN_1 through NGROK_AUTH_TOKEN_10 are set in GitHub Secrets"
+              Write-Error "ALL NGROK TOKENS FAILED! Check your ngrok tokens and credit card setup."
               exit 1
           }
 
@@ -673,53 +569,34 @@ jobs:
           SESSION_NUM=${{ matrix.session_num }}
           FOUND_TOKEN=""
 
-          echo "============================================"
-          echo "  Session #$SESSION_NUM - Token Fallback System"
-          echo "  Token order: $SESSION_NUM -> ... -> 10 -> 1 -> ... -> $((SESSION_NUM-1))"
-          echo "============================================"
-
-          # بناء ترتيب التوكنات
           TOKEN_ORDER=""
           for i in $(seq $SESSION_NUM 10); do TOKEN_ORDER="$TOKEN_ORDER $i"; done
           for i in $(seq 1 $((SESSION_NUM - 1))); do TOKEN_ORDER="$TOKEN_ORDER $i"; done
 
           for t in $TOKEN_ORDER; do
-              # قراءة التوكن ديناميكياً
               TOKEN_VAR="NGROK_TOKEN_$t"
               TOKEN="${!TOKEN_VAR}"
 
               if [ -z "$TOKEN" ]; then
-                  echo "[Token #$t] Not set in secrets - skipping"
+                  echo "[Token #$t] Not set - skipping"
                   continue
               fi
 
               echo "[Token #$t] Trying..."
-
-              # إيقاف أي ngrok سابق
               sudo pkill -f ngrok 2>/dev/null || true
               sleep 2
-
-              # تهيئة التوكن
               ngrok config add-authtoken "$TOKEN" 2>&1
-
-              # حذف ملف السجل القديم
               rm -f /tmp/ngrok.log
-
-              # تشغيل ngrok
               nohup ngrok tcp "$RDP_PORT" --log=/tmp/ngrok.log --log-format=logfmt > /dev/null 2>&1 &
               NGROK_PID=$!
-
-              # الانتظار حتى يبدأ
               sleep 10
 
-              # التحقق من أن العملية لا تزال تعمل
               if ! kill -0 $NGROK_PID 2>/dev/null; then
-                  echo "[Token #$t] FAILED - ngrok crashed!"
+                  echo "[Token #$t] FAILED - crashed!"
                   cat /tmp/ngrok.log 2>/dev/null | tail -5 || true
                   continue
               fi
 
-              # التحقق من أن النفق يعمل عبر API
               TUNNEL_OK=false
               sleep 3
               TUNNEL_DATA=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null || echo "")
@@ -728,38 +605,35 @@ jobs:
               if [ "$TUNNEL_COUNT" -gt 0 ] 2>/dev/null; then
                   TUNNEL_OK=true
               else
-                  echo "[Token #$t] Tunnel API not ready, waiting..."
                   sleep 5
                   TUNNEL_DATA=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null || echo "")
                   TUNNEL_COUNT=$(echo "$TUNNEL_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('tunnels',[])))" 2>/dev/null || echo "0")
-                  if [ "$TUNNEL_COUNT" -gt 0 ] 2>/dev/null; then
-                      TUNNEL_OK=true
-                  fi
+                  if [ "$TUNNEL_COUNT" -gt 0 ] 2>/dev/null; then TUNNEL_OK=true; fi
               fi
 
               if $TUNNEL_OK; then
                   FOUND_TOKEN=$t
                   echo "NGROK_PID=$NGROK_PID" >> $GITHUB_ENV
                   echo "USED_TOKEN_IDX=$t" >> $GITHUB_ENV
-                  echo "[Token #$t] SUCCESS - Tunnel established for Session #$SESSION_NUM!"
+                  echo "TUNNEL_TYPE=ngrok" >> $GITHUB_ENV
+                  echo "[Token #$t] SUCCESS!"
                   break
               else
-                  echo "[Token #$t] FAILED - No tunnel established"
+                  echo "[Token #$t] FAILED"
                   kill $NGROK_PID 2>/dev/null || true
                   sleep 2
               fi
           done
 
           if [ -z "$FOUND_TOKEN" ]; then
-              echo "ALL TOKENS FAILED for Session #$SESSION_NUM!"
-              echo "Make sure NGROK_AUTH_TOKEN_1 through NGROK_AUTH_TOKEN_10 are set in GitHub Secrets"
+              echo "ALL NGROK TOKENS FAILED! Check your ngrok tokens and credit card setup."
               exit 1
           fi
 
-      # ══════════════════════════════════════════════
-      #  STEP 6: الحصول على عنوان النفق
-      # ══════════════════════════════════════════════
-      - name: "[Windows] Get Tunnel Address"
+      # ════════════════════════════════
+      #  STEP 5: الحصول على عنوان النفق
+      # ════════════════════════════════
+      - name: "[Windows] Get ngrok Tunnel Address"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -773,19 +647,16 @@ jobs:
               } catch {}
               Start-Sleep -Seconds 5
               $retries++
-              Write-Host "Waiting for tunnel... attempt $retries"
           }
           if (-not $tunnelInfo) { Write-Error "Failed to get tunnel address"; exit 1 }
           $publicUrl = $tunnelInfo.public_url
           Write-Host "Tunnel URL: $publicUrl"
           if ($publicUrl -match "tcp://(.*):(\d+)") {
-              echo "NGROK_ADDRESS=$($Matches[1])" >> $env:GITHUB_ENV
-              echo "NGROK_PORT=$($Matches[2])" >> $env:GITHUB_ENV
-              echo "NGROK_FULL=$($Matches[1])`:$($Matches[2])" >> $env:GITHUB_ENV
-          } else { echo "NGROK_FULL=$publicUrl" >> $env:GITHUB_ENV }
-          Write-Host "Address: $env:NGROK_FULL (Token #$env:USED_TOKEN_IDX)"
+              echo "TUNNEL_ADDRESS=$($Matches[1])`:$($Matches[2])" >> $env:GITHUB_ENV
+          } else { echo "TUNNEL_ADDRESS=$publicUrl" >> $env:GITHUB_ENV }
+          Write-Host "Address: $env:TUNNEL_ADDRESS (Token #$env:USED_TOKEN_IDX)"
 
-      - name: "[Linux/macOS] Get Tunnel Address"
+      - name: "[Linux/macOS] Get ngrok Tunnel Address"
         if: runner.os != 'Windows'
         run: |
           for i in $(seq 1 30); do
@@ -793,24 +664,18 @@ jobs:
               URL=$(echo "$DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
               if [ -n "$URL" ]; then
                   ADDRESS=$(echo "$URL" | sed 's|tcp://||')
-                  HOST=$(echo "$ADDRESS" | cut -d: -f1)
-                  PORT=$(echo "$ADDRESS" | cut -d: -f2)
-                  echo "NGROK_ADDRESS=$HOST" >> $GITHUB_ENV
-                  echo "NGROK_PORT=$PORT" >> $GITHUB_ENV
-                  echo "NGROK_FULL=$ADDRESS" >> $GITHUB_ENV
+                  echo "TUNNEL_ADDRESS=$ADDRESS" >> $GITHUB_ENV
                   echo "Address: $ADDRESS (Token #$USED_TOKEN_IDX)"
                   exit 0
               fi
-              echo "Waiting... attempt $i"
               sleep 5
           done
-          cat /tmp/ngrok.log 2>/dev/null || true
           echo "Failed to get tunnel address"
           exit 1
 
-      # ══════════════════════════════════════════════
-      #  STEP 7: إرسال إشعار تيلغرام
-      # ══════════════════════════════════════════════
+      # ════════════════════════════════
+      #  STEP 6: إرسال إشعار تيلغرام
+      # ════════════════════════════════
       - name: "[All] Notify via Telegram"
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -826,281 +691,429 @@ jobs:
               echo "============================================"
               echo "  Session #${SESSION_NUM} - CONNECTION INFO"
               echo "============================================"
-              echo "  Type:    $RDP_TYPE"
-              echo "  Address: $NGROK_FULL"
-              echo "  User:    $RDP_USER"
-              echo "  Pass:    $RDP_PASSWORD_VALUE"
-              echo "  Token:   #$USED_TOKEN_IDX"
-              echo "  Duration: ${DURATION} minutes"
+              echo "  Tunnel:    ngrok"
+              echo "  Address:   $TUNNEL_ADDRESS"
+              echo "  Type:      $RDP_TYPE"
+              echo "  User:      $RDP_USER"
+              echo "  Password:  $RDP_PASSWORD_VALUE"
+              echo "  Duration:  $DURATION minutes"
               echo "============================================"
               exit 0
           fi
 
-          START_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          RESTART_STATUS="OFF"
-          if [ "$AUTO_RESTART" = "true" ]; then RESTART_STATUS="ON"; fi
+          RESTART_ICON=""
+          if [ "$AUTO_RESTART" = "true" ]; then RESTART_ICON="ON"; else RESTART_ICON="OFF"; fi
 
-          # حساب ساعات ودقائق المدة
-          DUR_H=$((DURATION / 60))
-          DUR_M=$((DURATION % 60))
-          DUR_STR="${DUR_H}h ${DUR_M}m"
-          if [ "$DUR_H" -eq 0 ]; then DUR_STR="${DUR_M}m"; fi
+          # HTML-encode dynamic content for safety
+          ADDR_SAFE=$(python3 -c "import html; print(html.escape('$TUNNEL_ADDRESS'))" 2>/dev/null || echo "$TUNNEL_ADDRESS")
+          PASS_SAFE=$(python3 -c "import html; print(html.escape('$RDP_PASSWORD_VALUE'))" 2>/dev/null || echo "$RDP_PASSWORD_VALUE")
+          USER_SAFE=$(python3 -c "import html; print(html.escape('$RDP_USER'))" 2>/dev/null || echo "$RDP_USER")
 
-          NL=$'\n'
+          # Build formatted message with line breaks (printf \n = real newlines)
+          MSG=$(printf '<b>V6.9 RDP - Session #%s Ready</b>\n\n╔══════════════════════════╗\n║ [*] <b>Address:</b> <code>%s</code>\n║ [T] <b>Type:</b> %s\n║ [U] <b>User:</b> %s\n║ [P] <b>Pass:</b> <code>%s</code>\n║ [D] <b>Duration:</b> %smin\n║ [R] <b>Restart:</b> %s\n║ [H] <b>Runner:</b> %s\n╚══════════════════════════╝' \
+            "$SESSION_NUM" "$ADDR_SAFE" "$RDP_TYPE" "$USER_SAFE" "$PASS_SAFE" "$DURATION" "$RESTART_ICON" "$RUNNER_TYPE")
 
-          if [ "$RDP_TYPE" = "RDP" ]; then
-              CONNECT="=== Windows RDP ===${NL}1. Open Remote Desktop (mstsc)${NL}2. Address: $NGROK_FULL${NL}3. User: $RDP_USER${NL}4. Pass: $RDP_PASSWORD_VALUE"
-          elif [ "$RDP_TYPE" = "XRDP" ]; then
-              CONNECT="=== Linux XRDP ===${NL}1. Open Remote Desktop (mstsc)${NL}2. Address: $NGROK_FULL${NL}3. User: $RDP_USER${NL}4. Pass: $RDP_PASSWORD_VALUE${NL}5. Session: XFCE"
-          else
-              CONNECT="=== macOS VNC ===${NL}1. Install VNC Viewer${NL}2. Address: $NGROK_FULL${NL}3. Pass: $RDP_PASSWORD_VALUE"
-          fi
+          # Send using POST with --data-urlencode for proper encoding
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "disable_web_page_preview=true" \
+            > /dev/null 2>&1 || true
+          echo "Telegram notification sent"
 
-          MESSAGE="Server #${SESSION_NUM} Ready!${NL}${NL}Type: $RDP_TYPE${NL}Runner: $RUNNER_TYPE${NL}Address: $NGROK_FULL${NL}User: $RDP_USER${NL}Pass: $RDP_PASSWORD_VALUE${NL}Token: #$USED_TOKEN_IDX${NL}${NL}Started: $START_TIME${NL}Duration: $DUR_STR${NL}Auto-Restart: $RESTART_STATUS${NL}${NL}$CONNECT"
-
-          ENCODED_MSG=$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))" "$MESSAGE" 2>/dev/null || echo "")
-          if [ -z "$ENCODED_MSG" ]; then
-              ENCODED_MSG=$(echo "$MESSAGE" | jq -sRr @uri 2>/dev/null || echo "")
-          fi
-
-          if [ -n "$ENCODED_MSG" ]; then
-              curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=${ENCODED_MSG}" > /dev/null 2>&1
-              echo "Telegram notification sent for Session #${SESSION_NUM}"
-          else
-              echo "Failed to encode message"
-          fi
-
-      # ══════════════════════════════════════════════
-      #  STEP 8: إبقاء الاتصال + مؤقت ذكي
-      #  المدة مأخوذة من المدخل (قابلة للتخصيص)
-      # ══════════════════════════════════════════════
-      - name: "[Windows] Maintain Connection"
+      # ══════════════════════════════════════════════════════════════
+      #  STEP 7: WINDOWS - الحفاظ على الاتصال + المراقبة (PowerShell)
+      #  ─────────────────────────────────────────────────────────────
+      #  إصلاح V6.8→V6.9:
+      #    - استخدام ngrok API بدلاً من kill -0 PID
+      #      (kill -0 لا يعمل في Git Bash لـ PID من PowerShell)
+      #    - إعادة تشغيل ngrok داخل الجلسة عند موت النفق
+      #    - خطوة PowerShell كاملة (أكثر موثوقية على Windows)
+      # ══════════════════════════════════════════════════════════════
+      - name: "[Windows] Maintain Connection & Monitor"
         if: runner.os == 'Windows'
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SESSION_NUM: ${{ matrix.session_num }}
           DURATION: ${{ needs.setup.outputs.duration }}
+        shell: pwsh
         run: |
-          $maxMinutes = [int]"$env:DURATION"
+          $dur = [int]$env:DURATION * 60
+          $half = [math]::Floor($dur / 2)
           $sn = $env:SESSION_NUM
 
-          Write-Host "============================================"
-          Write-Host "  Session #$sn - RDP ACCESS INFO"
-          Write-Host "============================================"
-          Write-Host "  Address:  $env:NGROK_FULL"
-          Write-Host "  User:     $env:RDP_USER"
-          Write-Host "  Pass:     $env:RDP_PASSWORD_VALUE"
-          Write-Host "  Token:    #$env:USED_TOKEN_IDX"
-          Write-Host "  Duration: $maxMinutes minutes"
-          Write-Host "============================================"
+          # عتبات الإشعارات
+          $notify30 = [int]$env:DURATION -gt 60
+          $notify10 = [int]$env:DURATION -gt 20
+          $notify5 = [int]$env:DURATION -gt 10
 
-          $startTime = Get-Date
-          $notifiedHalf = $false; $notified30 = $false; $notified10 = $false; $notified5 = $false
-          $botToken = $env:TG_BOT_TOKEN; $chatId = $env:TG_CHAT_ID
-          $halfMark = [math]::Floor($maxMinutes / 2)
+          Write-Host "Duration: $($env:DURATION)min | Half: $([math]::Floor($half/60))min"
+          Write-Host "Notifications: 30min=$notify30  10min=$notify10  5min=$notify5"
 
-          while ($true) {
-              $elapsed = (Get-Date) - $startTime
-              $remaining = $maxMinutes - $elapsed.TotalMinutes
-              if ($remaining -le 0) { Write-Host "[S$sn] Time is up!"; break }
-              $h = [math]::Floor($remaining / 60)
-              $m = [math]::Floor($remaining % 60)
-              Write-Host "[S$sn] [$(Get-Date -Format 'HH:mm:ss')] Remaining: ${h}h ${m}m"
+          $sentHalf = $false
+          $sent30 = $false
+          $sent10 = $false
+          $sent5 = $false
+          $restartAttempts = 0
+          $maxRestarts = 3
 
-              # إشعار عند منتصف المدة
-              if ($remaining -le $halfMark -and -not $notifiedHalf -and $halfMark -ge 5 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
-                  $notifiedHalf = $true
-                  $msg = [System.Uri]::EscapeDataString("[S$sn] Half time! $halfMark minutes remaining of $maxMinutes")
-                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
+          function Send-TG {
+              param([string]$msg)
+              if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
+                  $encoded = [System.Uri]::EscapeDataString($msg)
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$encoded&parse_mode=HTML&disable_web_page_preview=true" -Method Get -TimeoutSec 10 } catch {}
               }
-              # إشعار 30 دقيقة
-              if ($remaining -le 30 -and -not $notified30 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
-                  $notified30 = $true
-                  $msg = [System.Uri]::EscapeDataString("[S$sn] Warning: Less than 30 minutes remaining!")
-                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
-              }
-              # إشعار 10 دقائق
-              if ($remaining -le 10 -and -not $notified10 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
-                  $notified10 = $true
-                  $msg = [System.Uri]::EscapeDataString("[S$sn] URGENT: Less than 10 minutes! Save your work!")
-                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
-              }
-              # إشعار 5 دقائق
-              if ($remaining -le 5 -and -not $notified5 -and -not [string]::IsNullOrWhiteSpace($botToken)) {
-                  $notified5 = $true
-                  $msg = [System.Uri]::EscapeDataString("[S$sn] FINAL: Less than 5 minutes! Stopping soon!")
-                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=$msg" -Method Get -TimeoutSec 10 } catch {}
-              }
-              Start-Sleep -Seconds 60
+              Write-Host "[Notify] $msg"
           }
 
-      - name: "[Linux/macOS] Maintain Connection"
+          function Test-NgrokTunnel {
+              try {
+                  $r = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
+                  if ($r.tunnels -and $r.tunnels.Count -gt 0) { return $true }
+              } catch {}
+              return $false
+          }
+
+          function Restart-NgrokTunnel {
+              param([int]$attempt)
+              Write-Host "[S$sn] Restarting ngrok (attempt $attempt)..."
+
+              # قتل ngrok القديم
+              Get-Process -Name ngrok -ErrorAction SilentlyContinue | Stop-Process -Force
+              Start-Sleep -Seconds 3
+
+              # إعادة التشغيل بنفس التوكن
+              $ngrokLog = "$env:TEMP\ngrok_restart_$attempt.log"
+              $proc = Start-Process -FilePath $env:NGROK_EXE -ArgumentList "tcp $env:RDP_PORT --log=$ngrokLog --log-format=logfmt" -PassThru -WindowStyle Hidden
+              Start-Sleep -Seconds 10
+
+              if ($proc.HasExited) {
+                  Write-Host "[S$sn] ngrok crashed on restart!"
+                  if (Test-Path $ngrokLog) { Get-Content $ngrokLog -Tail 5 }
+                  return $false
+              }
+
+              # انتظار النفق الجديد
+              $newUrl = $null
+              for ($i = 1; $i -le 15; $i++) {
+                  Start-Sleep -Seconds 5
+                  if (Test-NgrokTunnel) {
+                      try {
+                          $r = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
+                          $newUrl = $r.tunnels[0].public_url
+                      } catch {}
+                      break
+                  }
+                  Write-Host "  Waiting for tunnel... attempt $i/15"
+              }
+
+              if ($newUrl) {
+                  $addr = $newUrl -replace 'tcp://', ''
+                  echo "TUNNEL_ADDRESS=$addr" >> $env:GITHUB_ENV
+                  echo "NGROK_PID=$($proc.Id)" >> $env:GITHUB_ENV
+                  $addrSafe = [System.Net.WebUtility]::HtmlEncode($addr)
+                  Send-TG "[OK] <b>[S$sn]</b> ngrok restarted! New: <code>$addrSafe</code>"
+                  return $true
+              } else {
+                  Write-Host "[S$sn] Failed to restart ngrok"
+                  Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                  return $false
+              }
+          }
+
+          $elapsed = 0
+          while ($elapsed -lt $dur) {
+              Start-Sleep -Seconds 60
+              $elapsed += 60
+              $remaining = $dur - $elapsed
+              $mins = [math]::Floor($elapsed / 60)
+              $remMins = [math]::Floor($remaining / 60)
+
+              # ═══ مراقبة ngrok عبر API (وليس kill -0!) ═══
+              $tunnelAlive = Test-NgrokTunnel
+
+              if (-not $tunnelAlive) {
+                  # فحص إضافي: هل العملية لا تزال حية؟
+                  $ngrokProc = Get-Process -Name ngrok -ErrorAction SilentlyContinue
+                  if (-not $ngrokProc) {
+                      Send-TG "[!] <b>[S$sn]</b> ngrok process died! Restarting..."
+                  } else {
+                      Send-TG "[!] <b>[S$sn]</b> ngrok tunnel lost! Restarting..."
+                  }
+
+                  $restartAttempts++
+                  if ($restartAttempts -le $maxRestarts) {
+                      $restarted = Restart-NgrokTunnel -attempt $restartAttempts
+                      if (-not $restarted) {
+                          if ($restartAttempts -ge $maxRestarts) {
+                              Send-TG "[X] <b>[S$sn]</b> Max restarts reached! Session ending."
+                              break
+                          }
+                      }
+                  } else {
+                      Send-TG "[X] <b>[S$sn]</b> Max restarts ($maxRestarts) reached! Session ending."
+                      break
+                  }
+              }
+
+              # ═══ إشعارات ذكية ═══
+              if (-not $sentHalf -and $elapsed -ge $half) {
+                  $sentHalf = $true
+                  Send-TG "[~] <b>[S$sn]</b> Half time passed ($mins/$($env:DURATION)min, ${remMins}min left)"
+              }
+
+              if ($notify30 -and -not $sent30 -and $remaining -le 1800) {
+                  $sent30 = $true
+                  Send-TG "[!] <b>[S$sn]</b> Less than 30min remaining!"
+              }
+
+              if ($notify10 -and -not $sent10 -and $remaining -le 600) {
+                  $sent10 = $true
+                  Send-TG "[!!] <b>[S$sn]</b> Less than 10min remaining!"
+              }
+
+              if ($notify5 -and -not $sent5 -and $remaining -le 300) {
+                  $sent5 = $true
+                  Send-TG "[!!!] <b>[S$sn]</b> Less than 5min remaining!"
+              }
+
+              # طباعة حالة كل 10 دقائق
+              if ($elapsed % 600 -eq 0) {
+                  Write-Host "[S$sn] Running: ${mins}/$($env:DURATION)min (${remMins}min left) | Tunnel: OK"
+              }
+          }
+
+          Write-Host "Duration completed after $($env:DURATION) minutes"
+
+      # ══════════════════════════════════════════════════════════════
+      #  STEP 7B: LINUX/macOS - الحفاظ على الاتصال + المراقبة (Bash)
+      # ══════════════════════════════════════════════════════════════
+      - name: "[Linux/macOS] Maintain Connection & Monitor"
         if: runner.os != 'Windows'
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SESSION_NUM: ${{ matrix.session_num }}
           DURATION: ${{ needs.setup.outputs.duration }}
+        shell: bash
         run: |
-          MAX_MINUTES=$DURATION
-          MAX_SECONDS=$((MAX_MINUTES * 60))
-          SN=$SESSION_NUM
-          HALF_MARK=$((MAX_MINUTES / 2))
+          DUR=$((DURATION * 60))
+          HALF=$((DUR / 2))
 
-          echo "============================================"
-          echo "  Session #${SN} - ACCESS INFO"
-          echo "============================================"
-          echo "  Address:  $NGROK_FULL"
-          echo "  User:     $RDP_USER"
-          echo "  Pass:     $RDP_PASSWORD_VALUE"
-          echo "  Token:    #$USED_TOKEN_IDX"
-          echo "  Duration: ${MAX_MINUTES} minutes"
-          echo "============================================"
+          NOTIFY_30=false; NOTIFY_10=false; NOTIFY_5=false
+          if [ "$DURATION" -gt 60 ]; then NOTIFY_30=true; fi
+          if [ "$DURATION" -gt 20 ]; then NOTIFY_10=true; fi
+          if [ "$DURATION" -gt 10 ]; then NOTIFY_5=true; fi
 
-          START=$(date +%s)
-          NOTIFIED_HALF=0; NOTIFIED30=0; NOTIFIED10=0; NOTIFIED5=0
+          ALERT_30=$((30 * 60))
+          ALERT_10=$((10 * 60))
+          ALERT_5=$((5 * 60))
 
-          while true; do
-              NOW=$(date +%s)
-              ELAPSED=$((NOW - START))
-              REMAINING=$((MAX_SECONDS - ELAPSED))
-              if [ $REMAINING -le 0 ]; then echo "[S${SN}] Time is up!"; break; fi
-              H=$((REMAINING / 3600))
-              M=$(((REMAINING % 3600) / 60))
-              echo "[S${SN}] [$(date '+%H:%M:%S')] Remaining: ${H}h ${M}m"
+          echo "Duration: ${DURATION}min | Half: $((HALF/60))min"
+          echo "Notifications: 30min=$NOTIFY_30  10min=$NOTIFY_10  5min=$NOTIFY_5"
 
-              HALF_SEC=$((HALF_MARK * 60))
-              if [ $REMAINING -le $HALF_SEC ] && [ $NOTIFIED_HALF -eq 0 ] && [ $HALF_MARK -ge 5 ] && [ -n "$TG_BOT_TOKEN" ]; then
-                  NOTIFIED_HALF=1
-                  curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Half%20time!%20${HALF_MARK}min%20remaining%20of%20${MAX_MINUTES}min" > /dev/null 2>&1 || true
+          SENT_HALF=false; SENT_30=false; SENT_10=false; SENT_5=false
+          RESTART_ATTEMPTS=0
+          MAX_RESTARTS=3
+
+          SEND_TG() {
+              local msg="$1"
+              if [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ]; then
+                  curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+                    --data-urlencode "chat_id=${TG_CHAT_ID}" \
+                    --data-urlencode "text=${msg}" \
+                    --data-urlencode "parse_mode=HTML" \
+                    --data-urlencode "disable_web_page_preview=true" \
+                    > /dev/null 2>&1 || true
               fi
-              if [ $REMAINING -le 1800 ] && [ $NOTIFIED30 -eq 0 ] && [ -n "$TG_BOT_TOKEN" ]; then
-                  NOTIFIED30=1
-                  curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Warning%3A%20Less%20than%2030%20minutes!" > /dev/null 2>&1 || true
+              echo "[Notify] $msg"
+          }
+
+          CHECK_NGROK_API() {
+              local data=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null || echo "")
+              local count=$(echo "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('tunnels',[])))" 2>/dev/null || echo "0")
+              if [ "$count" -gt 0 ] 2>/dev/null; then return 0; else return 1; fi
+          }
+
+          RESTART_NGROK() {
+              local attempt=$1
+              echo "[S${SESSION_NUM}] Restarting ngrok (attempt $attempt)..."
+              sudo pkill -f ngrok 2>/dev/null || true
+              sleep 3
+
+              # استخدام نفس التوكن
+              local token_idx=$USED_TOKEN_IDX
+              local token_var="NGROK_TOKEN_$token_idx"
+              local token="${!token_var}"
+              if [ -z "$token" ]; then
+                  echo "[S${SESSION_NUM}] No token available for restart"
+                  return 1
               fi
-              if [ $REMAINING -le 600 ] && [ $NOTIFIED10 -eq 0 ] && [ -n "$TG_BOT_TOKEN" ]; then
-                  NOTIFIED10=1
-                  curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20URGENT%3A%20Less%20than%2010%20minutes!" > /dev/null 2>&1 || true
+
+              ngrok config add-authtoken "$token" 2>&1
+              rm -f /tmp/ngrok_restart_$attempt.log
+              nohup ngrok tcp "$RDP_PORT" --log=/tmp/ngrok_restart_$attempt.log --log-format=logfmt > /dev/null 2>&1 &
+              local new_pid=$!
+              sleep 10
+
+              if ! kill -0 $new_pid 2>/dev/null; then
+                  echo "[S${SESSION_NUM}] ngrok crashed on restart!"
+                  return 1
               fi
-              if [ $REMAINING -le 300 ] && [ $NOTIFIED5 -eq 0 ] && [ -n "$TG_BOT_TOKEN" ]; then
-                  NOTIFIED5=1
-                  curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20FINAL%3A%20Less%20than%205%20minutes!" > /dev/null 2>&1 || true
-              fi
+
+              # انتظار النفق الجديد
+              for i in $(seq 1 15); do
+                  sleep 5
+                  if CHECK_NGROK_API; then
+                      local new_data=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null || echo "")
+                      local new_url=$(echo "$new_data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['tunnels'][0]['public_url'])" 2>/dev/null || echo "")
+                      if [ -n "$new_url" ]; then
+                          local new_addr=$(echo "$new_url" | sed 's|tcp://||')
+                          echo "TUNNEL_ADDRESS=$new_addr" >> $GITHUB_ENV
+                          echo "NGROK_PID=$new_pid" >> $GITHUB_ENV
+                          NEW_ADDR_SAFE=$(python3 -c "import html; print(html.escape('$new_addr'))" 2>/dev/null || echo "$new_addr")
+                          SEND_TG "[OK] <b>[S${SESSION_NUM}]</b> ngrok restarted! New: <code>${NEW_ADDR_SAFE}</code>"
+                          return 0
+                      fi
+                  fi
+                  echo "  Waiting for tunnel... attempt $i/15"
+              done
+
+              echo "[S${SESSION_NUM}] Failed to restart ngrok"
+              kill $new_pid 2>/dev/null || true
+              return 1
+          }
+
+          ELAPSED=0
+          while [ $ELAPSED -lt $DUR ]; do
               sleep 60
+              ELAPSED=$((ELAPSED + 60))
+              REMAINING=$((DUR - ELAPSED))
+              MINS=$((ELAPSED / 60))
+              REM_MINS=$((REMAINING / 60))
+
+              # ═══ مراقبة ngrok عبر API ═══
+              if ! CHECK_NGROK_API; then
+                  SEND_TG "[!] <b>[S${SESSION_NUM}]</b> ngrok tunnel died! Restarting..."
+                  RESTART_ATTEMPTS=$((RESTART_ATTEMPTS + 1))
+                  if [ $RESTART_ATTEMPTS -le $MAX_RESTARTS ]; then
+                      if ! RESTART_NGROK $RESTART_ATTEMPTS; then
+                          if [ $RESTART_ATTEMPTS -ge $MAX_RESTARTS ]; then
+                              SEND_TG "[X] <b>[S${SESSION_NUM}]</b> Max restarts reached! Session ending."
+                              break
+                          fi
+                      fi
+                  else
+                      SEND_TG "[X] <b>[S${SESSION_NUM}]</b> Max restarts ($MAX_RESTARTS) reached! Session ending."
+                      break
+                  fi
+              fi
+
+              # ═══ إشعارات ذكية ═══
+              if [ "$SENT_HALF" = false ] && [ $ELAPSED -ge $HALF ]; then
+                  SENT_HALF=true
+                  SEND_TG "[~] <b>[S${SESSION_NUM}]</b> Half time passed (${MINS}/${DURATION}min, ${REM_MINS}min left)"
+              fi
+
+              if [ "$NOTIFY_30" = true ] && [ "$SENT_30" = false ] && [ $REMAINING -le $ALERT_30 ]; then
+                  SENT_30=true
+                  SEND_TG "[!] <b>[S${SESSION_NUM}]</b> Less than 30min remaining!"
+              fi
+
+              if [ "$NOTIFY_10" = true ] && [ "$SENT_10" = false ] && [ $REMAINING -le $ALERT_10 ]; then
+                  SENT_10=true
+                  SEND_TG "[!!] <b>[S${SESSION_NUM}]</b> Less than 10min remaining!"
+              fi
+
+              if [ "$NOTIFY_5" = true ] && [ "$SENT_5" = false ] && [ $REMAINING -le $ALERT_5 ]; then
+                  SENT_5=true
+                  SEND_TG "[!!!] <b>[S${SESSION_NUM}]</b> Less than 5min remaining!"
+              fi
+
+              # طباعة حالة كل 10 دقائق
+              if [ $((ELAPSED % 600)) -eq 0 ]; then
+                  echo "[S${SESSION_NUM}] Running: ${MINS}/${DURATION}min (${REM_MINS}min left) | Tunnel: OK"
+              fi
           done
 
-      # ══════════════════════════════════════════════
-      #  STEP 9A: إعادة التشغيل التلقائي
-      # ══════════════════════════════════════════════
-      - name: "[Windows] Auto-Restart"
-        if: ${{ github.event.inputs.auto_restart == 'true' && runner.os == 'Windows' }}
+          echo "Duration completed after ${DURATION} minutes"
+
+      # ════════════════════════════════
+      #  STEP 8: إعادة التشغيل التلقائي
+      # ════════════════════════════════
+      - name: "[All] Auto-Restart"
+        if: github.event.inputs.auto_restart == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SESSION_NUM: ${{ matrix.session_num }}
           DURATION: ${{ needs.setup.outputs.duration }}
         shell: pwsh
         run: |
           $sn = $env:SESSION_NUM
+
           if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
-              $msg = [System.Uri]::EscapeDataString("[S$sn] Session ended. Auto-restarting...")
-              try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$msg" -Method Get -TimeoutSec 10 } catch {}
+              $msg = [System.Uri]::EscapeDataString("[>>] <b>[S$sn]</b> Session ended. Auto-restarting...")
+              try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$msg&parse_mode=HTML&disable_web_page_preview=true" -Method Get -TimeoutSec 10 } catch {}
           }
 
-          $repo = "${{ github.repository }}"
-          $wf = "${{ github.workflow_id }}"
-          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
+          $repo = $env:GITHUB_REPOSITORY
+          if ([string]::IsNullOrWhiteSpace($repo)) {
+              Write-Host "[S$sn] ERROR: GITHUB_REPOSITORY is empty!"
+              if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
+                  $failMsg = [System.Uri]::EscapeDataString("[X] <b>[S$sn]</b> Auto-restart failed! GITHUB_REPOSITORY empty.")
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$failMsg&parse_mode=HTML&disable_web_page_preview=true" -Method Get -TimeoutSec 10 } catch {}
+              }
+              exit 0
+          }
+
+          $wfRef = "${{ github.workflow_ref }}"
+          Write-Host "workflow_ref: $wfRef"
+          $wfFile = $wfRef -replace '.*\.github/workflows/', '' -replace '@.*', ''
+          if ([string]::IsNullOrWhiteSpace($wfFile)) { $wfFile = "main.yml" }
+          Write-Host "Repo: $repo | Workflow: $wfFile"
+
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+              Write-Host "[S$sn] ERROR: GITHUB_TOKEN is empty!"
+              if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
+                  $failMsg = [System.Uri]::EscapeDataString("[X] <b>[S$sn]</b> Auto-restart failed! GITHUB_TOKEN empty.")
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$failMsg&parse_mode=HTML&disable_web_page_preview=true" -Method Get -TimeoutSec 10 } catch {}
+              }
+              exit 0
+          }
+
+          $headers = @{
+              Authorization = "Bearer $env:GH_TOKEN"
+              Accept = "application/vnd.github+json"
+          }
           $body = @{
-              ref = "${{ github.ref }}"
+              ref = "refs/heads/main"
               inputs = @{
                   auto_restart = "true"
                   runner_type = "${{ github.event.inputs.runner_type }}"
                   session_count = "${{ github.event.inputs.session_count }}"
                   duration_minutes = "$env:DURATION"
               }
-          } | ConvertTo-Json
+          } | ConvertTo-Json -Depth 5
 
           try {
-              Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/actions/workflows/$wf/dispatches" -Method Post -Headers $headers -Body $body -ContentType "application/json"
-              Write-Host "[S$sn] Auto-restart triggered!"
+              $uri = "https://api.github.com/repos/$repo/actions/workflows/$wfFile/dispatches"
+              Write-Host "Calling: $uri"
+              $result = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ContentType "application/json"
+              Write-Host "[S$sn] Auto-restart triggered successfully!"
+              if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
+                  $okMsg = [System.Uri]::EscapeDataString("[OK] <b>[S$sn]</b> Auto-restart triggered! New session starting...")
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$okMsg&parse_mode=HTML&disable_web_page_preview=true" -Method Get -TimeoutSec 10 } catch {}
+              }
           } catch {
-              try {
-                  & gh workflow run $wf --ref "${{ github.ref }}" -f auto_restart=true -f runner_type="${{ github.event.inputs.runner_type }}" -f session_count="${{ github.event.inputs.session_count }}" -f duration_minutes="$env:DURATION"
-                  Write-Host "[S$sn] Auto-restart via CLI!"
-              } catch {
-                  Write-Host "[S$sn] Auto-restart failed!"
-                  if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
-                      $failMsg = [System.Uri]::EscapeDataString("[S$sn] Auto-restart failed! Restart manually.")
-                      try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$failMsg" -Method Get -TimeoutSec 10 } catch {}
-                  }
+              $errMsg = $_.Exception.Message
+              Write-Host "[S$sn] API failed: $errMsg"
+              if (-not [string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) {
+                  $failMsg = [System.Uri]::EscapeDataString("[X] <b>[S$sn]</b> Auto-restart failed! $errMsg")
+                  try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$failMsg&parse_mode=HTML&disable_web_page_preview=true" -Method Get -TimeoutSec 10 } catch {}
               }
           }
           exit 0
-
-      - name: "[Linux/macOS] Auto-Restart"
-        if: ${{ github.event.inputs.auto_restart == 'true' && runner.os != 'Windows' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SESSION_NUM: ${{ matrix.session_num }}
-          DURATION: ${{ needs.setup.outputs.duration }}
-        run: |
-          SN=$SESSION_NUM
-          if [ -n "$TG_BOT_TOKEN" ]; then
-              curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Session%20ended.%20Auto-restarting..." > /dev/null 2>&1 || true
-          fi
-
-          REPO="${{ github.repository }}"
-          WF="${{ github.workflow_id }}"
-          REF="${{ github.ref }}"
-          RUNNER="${{ github.event.inputs.runner_type }}"
-          COUNT="${{ github.event.inputs.session_count }}"
-          BODY="{\"ref\":\"$REF\",\"inputs\":{\"auto_restart\":\"true\",\"runner_type\":\"$RUNNER\",\"session_count\":\"$COUNT\",\"duration_minutes\":\"$DURATION\"}}"
-
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              -H "Content-Type: application/json" \
-              -d "$BODY" \
-              "https://api.github.com/repos/$REPO/actions/workflows/$WF/dispatches")
-
-          if [ "$HTTP_CODE" = "204" ]; then
-              echo "[S${SN}] Auto-restart triggered!"
-          else
-              echo "API failed ($HTTP_CODE), trying gh CLI..."
-              gh workflow run "$WF" --ref "$REF" -f auto_restart=true -f runner_type="$RUNNER" -f session_count="$COUNT" -f duration_minutes="$DURATION" 2>/dev/null && echo "[S${SN}] Auto-restart via CLI!" || {
-                  echo "[S${SN}] Auto-restart failed!"
-                  if [ -n "$TG_BOT_TOKEN" ]; then
-                      curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Auto-restart%20failed!" > /dev/null 2>&1 || true
-                  fi
-              }
-          fi
-
-      # ══════════════════════════════════════════════
-      #  STEP 9B: انتهاء الجلسة (بدون إعادة تشغيل)
-      # ══════════════════════════════════════════════
-      - name: "[Windows] Notify Session Ended"
-        if: ${{ github.event.inputs.auto_restart != 'true' && runner.os == 'Windows' }}
-        env:
-          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SESSION_NUM: ${{ matrix.session_num }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:TG_BOT_TOKEN)) { exit 0 }
-          $sn = $env:SESSION_NUM
-          $msg = [System.Uri]::EscapeDataString("[S$sn] Session ended. Auto-restart is OFF.")
-          try { Invoke-RestMethod -Uri "https://api.telegram.org/bot$env:TG_BOT_TOKEN/sendMessage?chat_id=$env:TG_CHAT_ID&text=$msg" -Method Get -TimeoutSec 10 } catch {}
-
-      - name: "[Linux/macOS] Notify Session Ended"
-        if: ${{ github.event.inputs.auto_restart != 'true' && runner.os != 'Windows' }}
-        env:
-          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SESSION_NUM: ${{ matrix.session_num }}
-        run: |
-          if [ -z "$TG_BOT_TOKEN" ]; then exit 0; fi
-          SN=$SESSION_NUM
-          curl -s "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage?chat_id=${TG_CHAT_ID}&text=[S${SN}]%20Session%20ended.%20Auto-restart%20OFF." > /dev/null 2>&1 || true
