@@ -1,7 +1,8 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
-# ║  V6.9 Ultimate Remote Desktop Workflow                               ║
+# ║  V6.9 Ultimate Remote Desktop Workflow + Audio Support              ║
 # ║  3 منصات: Windows (RDP) + Linux (XRDP+XFCE) + macOS (VNC)         ║
 # ║  12 خيار Runner + مدة قابلة للتخصيص + إعادة تشغيل تلقائية         ║
+# ║  ✨ جديد: تثبيت VB-CABLE + تفعيل Stereo Mix بدون Reboot ✨         ║
 # ║                                                                      ║
 # ║  الجديد في V6.9:                                                    ║
 # ║    - إشعارات تيلغرام بتصميم جميل ومنظم                              ║
@@ -9,6 +10,7 @@
 # ║    - فواصل أسطر ورموز تعبيرية وتنسيق HTML                          ║
 # ║    - إصلاح حرج: فحص ngrok عبر API بدلاً من kill -0 PID           ║
 # ║    - إعادة تشغيل ngrok داخل الجلسة عند موت النفق                  ║
+# ║    - ✨ تثبيت VB-CABLE + تفعيل الصوت بدون إعادة تشغيل ✨           ║
 # ║                                                                      ║
 # ║  الأسرار المطلوبة في GitHub Secrets:                                ║
 # ║    - NGROK_AUTH_TOKEN_1   (توكن ngrok رقم 1)                       ║
@@ -19,7 +21,7 @@
 # ║    - RDP_PASSWORD         (كلمة سر RDP - اختياري)                   ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 
-name: V6.9 Ultimate RDP
+name: V6.9 Ultimate RDP + Audio
 
 on:
   workflow_dispatch:
@@ -428,6 +430,116 @@ jobs:
           if (Test-Path "C:\Windows\System32\chromedriver.exe") { Write-Host "  chromedriver: OK" } else { Write-Host "  chromedriver: NOT FOUND" }
           Write-Host "============================================"
 
+      # ══════════════════════════════════════════════════════════════
+      #  STEP 3A.2: WINDOWS - VB-CABLE + Audio + Stereo Mix (No Reboot)
+      # ══════════════════════════════════════════════════════════════
+      - name: "[Windows] Install VB-CABLE & Enable Stereo Mix"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "============================================"
+          Write-Host "  Installing VB-CABLE & Enabling Audio"
+          Write-Host "============================================"
+
+          # 1. Enable and Start Windows Audio Services
+          Write-Host "[1/6] Enabling Windows Audio Services..."
+          try {
+              Set-Service -Name "Audiosrv" -StartupType Automatic -ErrorAction SilentlyContinue
+              Set-Service -Name "AudioEndpointBuilder" -StartupType Automatic -ErrorAction SilentlyContinue
+              Start-Service -Name "AudioEndpointBuilder" -ErrorAction SilentlyContinue
+              Start-Service -Name "Audiosrv" -ErrorAction SilentlyContinue
+              Write-Host "  Audio services started."
+          } catch {
+              Write-Host "  WARNING: Could not start audio services."
+          }
+
+          # 2. Download VB-CABLE
+          Write-Host "[2/6] Downloading VB-CABLE..."
+          $vbUrl = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
+          $vbZip = "$env:TEMP\VBCABLE.zip"
+          $vbDir = "$env:TEMP\VBCABLE"
+          try {
+              Invoke-WebRequest -Uri $vbUrl -OutFile $vbZip -MaximumRetryCount 3
+              Expand-Archive -Path $vbZip -DestinationPath $vbDir -Force
+              Write-Host "  VB-CABLE downloaded and extracted."
+          } catch {
+              Write-Host "  ERROR: Failed to download VB-CABLE."
+          }
+
+          # 3. Install VB-CABLE Silently
+          Write-Host "[3/6] Installing VB-CABLE silently..."
+          $installer = Get-ChildItem -Path $vbDir -Filter "VBCABLE_Setup_x64.exe" -Recurse | Select-Object -First 1
+          if ($installer) {
+              # -i for install, -h for hidden/silent
+              Start-Process -FilePath $installer.FullName -ArgumentList "-i", "-h" -Wait -NoNewWindow -PassThru
+              Write-Host "  VB-CABLE installer executed."
+          } else {
+              Write-Host "  WARNING: Installer not found."
+          }
+
+          # 4. Restart Audio Services to recognize new driver WITHOUT rebooting
+          Write-Host "[4/6] Restarting Audio Services to apply driver..."
+          Restart-Service -Name "AudioEndpointBuilder" -Force -ErrorAction SilentlyContinue
+          Restart-Service -Name "Audiosrv" -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 5
+
+          # 5. Enable Stereo Mix via Registry
+          Write-Host "[5/6] Searching and enabling Stereo Mix via Registry..."
+          $capturePath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Capture"
+          if (Test-Path $capturePath) {
+              $devices = Get-ChildItem -Path $capturePath -ErrorAction SilentlyContinue
+              $stereoMixEnabled = $false
+              foreach ($dev in $devices) {
+                  $propPath = Join-Path $dev.PSPath "Properties"
+                  if (Test-Path $propPath) {
+                      $props = Get-ItemProperty -Path $propPath -ErrorAction SilentlyContinue
+                      # The device name is usually in {a45c254e-df1c-4efd-8020-67d146a850e0},2
+                      $devName = $props.'{a45c254e-df1c-4efd-8020-67d146a850e0},2'
+                      if ($devName -match "Stereo Mix|Mix|What U Hear|Stereo") {
+                          $state = (Get-ItemProperty -Path $dev.PSPath -Name "DeviceState" -ErrorAction SilentlyContinue).DeviceState
+                          if ($state -ne 1) {
+                              Set-ItemProperty -Path $dev.PSPath -Name "DeviceState" -Value 1 -Force -ErrorAction SilentlyContinue
+                              Write-Host "  Enabled: $devName"
+                              $stereoMixEnabled = $true
+                          }
+                      }
+                  }
+              }
+              if ($stereoMixEnabled) {
+                  Restart-Service -Name "AudioEndpointBuilder" -Force -ErrorAction SilentlyContinue
+                  Restart-Service -Name "Audiosrv" -Force -ErrorAction SilentlyContinue
+                  Write-Host "  Audio services restarted after enabling Stereo Mix."
+              } else {
+                  Write-Host "  Stereo Mix not found in registry (common on headless servers)."
+              }
+          }
+
+          # 6. Set VB-CABLE as Default Audio Device
+          Write-Host "[6/6] Setting VB-CABLE as default audio device..."
+          try {
+              [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction SilentlyContinue | Out-Null
+              Install-Module -Name AudioDeviceCmdlets -Force -Scope CurrentUser -ErrorAction SilentlyContinue
+              
+              $playback = Get-AudioDevice -List | Where-Object { $_.Name -like "*CABLE Input*" -and $_.Type -eq "Playback" } | Select-Object -First 1
+              $recording = Get-AudioDevice -List | Where-Object { $_.Name -like "*CABLE Output*" -and $_.Type -eq "Recording" } | Select-Object -First 1
+              
+              if ($playback) {
+                  Set-AudioDevice -ID $playback.ID -ErrorAction SilentlyContinue
+                  Write-Host "  Set Playback: $($playback.Name)"
+              }
+              if ($recording) {
+                  Set-AudioDevice -ID $recording.ID -ErrorAction SilentlyContinue
+                  Write-Host "  Set Recording: $($recording.Name)"
+              }
+          } catch {
+              Write-Host "  WARNING: Failed to set default audio devices via Cmdlets."
+          }
+          
+          Write-Host "============================================"
+          Write-Host "  Audio setup complete! (No reboot required)"
+          Write-Host "============================================"
+
       # ════════════════════════════════
       #  STEP 3B: LINUX - تعيين كلمة سر المستخدم
       # ════════════════════════════════
@@ -724,12 +836,6 @@ jobs:
 
       # ══════════════════════════════════════════════════════════════
       #  STEP 7: WINDOWS - الحفاظ على الاتصال + المراقبة (PowerShell)
-      #  ─────────────────────────────────────────────────────────────
-      #  إصلاح V6.8→V6.9:
-      #    - استخدام ngrok API بدلاً من kill -0 PID
-      #      (kill -0 لا يعمل في Git Bash لـ PID من PowerShell)
-      #    - إعادة تشغيل ngrok داخل الجلسة عند موت النفق
-      #    - خطوة PowerShell كاملة (أكثر موثوقية على Windows)
       # ══════════════════════════════════════════════════════════════
       - name: "[Windows] Maintain Connection & Monitor"
         if: runner.os == 'Windows'
